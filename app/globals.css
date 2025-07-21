@@ -1,0 +1,36 @@
+    /* C:\xampp\htdocs\plawimadd_group\app\globals.css */
+
+    /* Importation de la police Poppins */
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+
+    /* Importations des directives Tailwind CSS (méthode recommandée) */
+    @tailwind base;
+    @tailwind components;
+    @tailwind utilities;
+
+    /* Styles globaux personnalisés */
+    * {
+        scroll-behavior: smooth;
+    }
+
+    /* Styles pour cacher les flèches des inputs de type number */
+    @layer base {
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    }
+
+    /* Styles pour cacher la barre de défilement */
+    ::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Définition de la police par défaut pour le corps */
+    body {
+        font-family: 'Poppins', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
