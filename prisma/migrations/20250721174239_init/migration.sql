@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE `products` ADD COLUMN `brand` VARCHAR(255) NULL,
+    ADD COLUMN `color` VARCHAR(255) NULL,
+    ADD COLUMN `rating` DOUBLE NULL DEFAULT 0.0;

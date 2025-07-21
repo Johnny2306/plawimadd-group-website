@@ -1,4 +1,3 @@
-
 // C:\xampp\htdocs\plawimadd_group\app\api\addresses\[userId]\route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -8,10 +7,11 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 // IMPORTATION DES FONCTIONS ET INTERFACES D'AUTHUTILS
 import { authorizeUser, AuthResult } from '@/lib/authUtils';
-import { Context as AuthContext } from '@/lib/authUtils';
+// NO LONGER NEED Context as AuthContext directly here for the route handler signature
+// import { Context as AuthContext } from '@/lib/authUtils';
 
-
-interface RouteContext extends AuthContext {
+// SIMPLIFIED RouteContext to match Next.js expectations for dynamic route handlers
+interface RouteContext {
     params: {
         userId: string;
     };
@@ -24,11 +24,13 @@ interface RouteContext extends AuthContext {
  * Nécessite une authentification et une autorisation (utilisateur ou admin).
  */
 export async function GET(req: NextRequest, context: RouteContext): Promise<NextResponse> {
-    const authResult: AuthResult = await authorizeUser(req, context as AuthContext);
+    // Pass the context directly to authorizeUser.
+    // authorizeUser's internal Context type should handle the `params` property.
+    const authResult: AuthResult = await authorizeUser(req, context); // Removed `as AuthContext`
     if (!authResult.authorized) {
         return authResult.response!;
     }
-    const userId = authResult.userId!;
+    const userId = authResult.userId!; // userId is now correctly extracted from authResult
 
     try {
         const addresses = await prisma.address.findMany({
@@ -49,7 +51,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Next
  * Nécessite une authentification et une autorisation.
  */
 export async function POST(req: NextRequest, context: RouteContext): Promise<NextResponse> {
-    const authResult: AuthResult = await authorizeUser(req, context as AuthContext);
+    const authResult: AuthResult = await authorizeUser(req, context); // Removed `as AuthContext`
     if (!authResult.authorized) {
         return authResult.response!;
     }
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Nex
  * Nécessite une authentification et une autorisation.
  */
 export async function PUT(req: NextRequest, context: RouteContext): Promise<NextResponse> {
-    const authResult: AuthResult = await authorizeUser(req, context as AuthContext);
+    const authResult: AuthResult = await authorizeUser(req, context); // Removed `as AuthContext`
     if (!authResult.authorized) {
         return authResult.response!;
     }
@@ -121,7 +123,7 @@ export async function PUT(req: NextRequest, context: RouteContext): Promise<Next
             return NextResponse.json({ success: false, message: 'ID et les champs obligatoires de l\'adresse (fullName, phoneNumber, area, city, state) sont requis pour la mise à jour.' }, { status: 400 });
         }
 
-        const addressIdAsNumber = parseInt(id, 10);
+        const addressIdAsNumber = parseInt(String(id), 10);
         if (isNaN(addressIdAsNumber)) {
             return NextResponse.json({ success: false, message: 'ID d\'adresse invalide.' }, { status: 400 });
         }
@@ -180,7 +182,7 @@ export async function PUT(req: NextRequest, context: RouteContext): Promise<Next
  * Nécessite une authentification et une autorisation.
  */
 export async function DELETE(req: NextRequest, context: RouteContext): Promise<NextResponse> {
-    const authResult: AuthResult = await authorizeUser(req, context as AuthContext);
+    const authResult: AuthResult = await authorizeUser(req, context); // Removed `as AuthContext`
     if (!authResult.authorized) {
         return authResult.response!;
     }
@@ -193,7 +195,7 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<N
             return NextResponse.json({ success: false, message: 'ID de l\'adresse est requis pour la suppression.' }, { status: 400 });
         }
 
-        const addressIdAsNumber = parseInt(addressId, 10);
+        const addressIdAsNumber = parseInt(String(addressId), 10);
         if (isNaN(addressIdAsNumber)) {
             return NextResponse.json({ success: false, message: 'ID d\'adresse invalide.' }, { status: 400 });
         }
