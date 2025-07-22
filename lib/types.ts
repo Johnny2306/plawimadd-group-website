@@ -72,6 +72,7 @@ export interface OrderItem {
 export interface Address {
     id?: string; // L'API peut renvoyer _id ou id
     _id?: string; // Maintenu pour la flexibilité si votre API utilise _id
+    userId: string; // <--- C'EST LA LIGNE CLÉ À AJOUTER/CORRIGER !!!
     fullName: string;
     phoneNumber: string;
     pincode: string | null; // <-- CORRIGÉ : Le code pin est maintenant optionnel/nullable

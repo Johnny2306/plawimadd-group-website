@@ -1,3 +1,4 @@
+// app/add-address/page.tsx
 'use client';
 
 import React, { useState, useEffect, ChangeEvent, FormEvent } from "react";
@@ -10,7 +11,10 @@ import { toast } from 'react-toastify';
 import { IconType } from 'react-icons';
 import { FiUser, FiPhone, FiMapPin, FiHome, FiNavigation, FiMail, FiSave } from 'react-icons/fi';
 import { IoLocationOutline } from 'react-icons/io5';
-import { User, Address } from '@/lib/types';
+// IMPORTER LE TYPE 'User' DIRECTEMENT DE 'next-auth' APRÈS EXTENSION DANS types/next-auth.d.ts
+// Cela garantit que 'session.user' a bien les propriétés 'id', 'role', 'token'
+import { User as NextAuthUser } from 'next-auth';
+import { Address } from '@/lib/types'; // Importez l'interface Address de lib/types
 import { assets } from "@/assets/assets";
 import Footer from "@/components/Footer";
 
@@ -50,15 +54,8 @@ const AddAddress = (): React.ReactElement => {
     useEffect(() => {
         setIsClient(true);
         if (status === 'authenticated' && session?.user) {
-            const role = (session.user as { role?: string }).role;
-            const userFromSession: User = {
-                id: session.user.id ? String(session.user.id) : (session.user.email || 'unknown_id'),
-                name: session.user.name || null,
-                email: session.user.email || null,
-                image: session.user.image || null,
-                token: (session.user as { token?: string }).token || undefined,
-                role: role === "ADMIN" ? "ADMIN" : "USER",
-            };
+            // Utiliser le type 'NextAuthUser' qui inclut 'id', 'role', 'token' grâce à types/next-auth.d.ts
+            const userFromSession: NextAuthUser = session.user;
             setCurrentUser(userFromSession);
         } else if (status === 'unauthenticated') {
             setCurrentUser(null);
@@ -74,6 +71,7 @@ const AddAddress = (): React.ReactElement => {
         e.preventDefault();
         setMessage('');
 
+        // Vérifier si currentUser est défini et a un ID valide
         if (!currentUser?.id) {
             toast.error("Veuillez vous connecter pour ajouter une adresse.");
             router.push('/login');
@@ -92,10 +90,13 @@ const AddAddress = (): React.ReactElement => {
             const payload: Partial<Address> = {
                 ...address,
                 isDefault: false,
+                // Assurez-vous que le champ `userId` est bien envoyé à l'API
+                // Il est préférable de le récupérer de `currentUser.id` ici
+                userId: currentUser.id,
             };
 
             const res = await axios.post(
-                `${url}/api/addresses/${currentUser.id}`,
+                `${url}/api/addresses/${currentUser.id}`, // L'ID de l'utilisateur est dans l'URL
                 payload,
                 { headers }
             );
@@ -104,7 +105,7 @@ const AddAddress = (): React.ReactElement => {
 
             if (res.status === 201 && data.success) {
                 toast.success(data.message || "Adresse ajoutée !");
-                setAddress({
+                setAddress({ // Réinitialiser le formulaire
                     fullName: '',
                     phoneNumber: '',
                     pincode: '',
@@ -112,8 +113,8 @@ const AddAddress = (): React.ReactElement => {
                     city: '',
                     state: '',
                 });
-                fetchUserAddresses();
-                router.push('/cart');
+                fetchUserAddresses(); // Recharger les adresses après l'ajout
+                router.push('/cart'); // Rediriger vers le panier
             } else {
                 toast.error(`Erreur: ${data.message || "Échec de l'ajout."}`);
             }
@@ -224,8 +225,8 @@ const AddAddress = (): React.ReactElement => {
                                     </div>
                                 )}
 
-                                <button 
-                                    type="submit" 
+                                <button
+                                    type="submit"
                                     className="w-full flex items-center justify-center space-x-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800
                                     text-white font-semibold py-3 rounded-lg shadow-md transition duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300"
                                 >
