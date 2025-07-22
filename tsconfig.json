@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": [
-      "DOM",
-      "DOM.Iterable",
-      "ESNext"
-    ],
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -20,26 +16,14 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@/components/*": [
-        "components/*"
-      ],
-      "@/lib/*": [
-        "lib/*"
-      ],
-      "@/assets/*": [
-        "assets/*"
-      ],
-      "@/context/*": [
-        "context/*"
-      ],
-      "@/app/*": [
-        "app/*"
-      ]
+      "@/components/*": ["components/*"],
+      "@/lib/*": ["lib/*"],
+      "@/assets/*": ["assets/*"],
+      "@/context/*": ["context/*"],
+      "@/app/*": ["app/*"]
     },
-    "typeRoots": [
-      "./node_modules/@types",
-      "./types"
-    ],
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "types": [ ],          // ✅ AJOUTÉ POUR QUE LES TYPES ÉTENDUS SOIENT CHARGÉS
     "plugins": [
       {
         "name": "next"
@@ -53,7 +37,5 @@
     ".next/types/**/*.ts",
     "next.config.js"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }
