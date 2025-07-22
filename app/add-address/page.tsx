@@ -1,7 +1,6 @@
-// app/add-address/page.tsx
 'use client';
 
-import React, { useState, useEffect, ChangeEvent, FormEvent } from "react"; // Importez ChangeEvent et FormEvent
+import React, { useState, useEffect, ChangeEvent, FormEvent } from "react";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -15,9 +14,6 @@ import { User, Address } from '@/lib/types';
 import { assets } from "@/assets/assets";
 import Footer from "@/components/Footer";
 
-
-// Interface pour l'état du formulaire d'adresse
-// C'est un sous-ensemble de l'interface Address complète, car le formulaire ne gère pas tous les champs
 interface AddressFormState {
     fullName: string;
     phoneNumber: string;
@@ -25,20 +21,17 @@ interface AddressFormState {
     area: string;
     city: string;
     state: string;
-    // isDefault, id, _id, street, country ne sont pas des champs de formulaire directs ici
 }
 
-// Interface pour les configurations des champs d'entrée
 interface InputFieldConfig {
-    name: keyof AddressFormState; // Le nom doit correspondre à une clé de AddressFormState
+    name: keyof AddressFormState;
     placeholder: string;
-    Icon: IconType; // Type pour les composants d'icônes de react-icons
+    Icon: IconType;
     required: boolean;
-    type: string; // Pour l'attribut 'type' de l'input (ex: 'text', 'tel')
+    type: string;
 }
 
-
-const AddAddress = (): React.ReactElement => { // Type le composant comme retournant un React.ReactElement
+const AddAddress = (): React.ReactElement => {
     const { currentUser, setCurrentUser, url, fetchUserAddresses } = useAppContext();
     const router = useRouter();
     const { data: session, status } = useSession();
@@ -51,21 +44,20 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
         city: '',
         state: '',
     });
-    const [message, setMessage] = useState<string>(''); // Type l'état du message comme string
-    const [isClient, setIsClient] = useState<boolean>(false); // Type l'état comme boolean
+    const [message, setMessage] = useState<string>('');
+    const [isClient, setIsClient] = useState<boolean>(false);
 
     useEffect(() => {
         setIsClient(true);
         if (status === 'authenticated' && session?.user) {
+            const role = (session.user as { role?: string }).role;
             const userFromSession: User = {
-                id: session.user.id ? String(session.user.id) : (session.user.email || 'unknown_id'), // Assurez-vous que l'ID est une string
+                id: session.user.id ? String(session.user.id) : (session.user.email || 'unknown_id'),
                 name: session.user.name || null,
                 email: session.user.email || null,
                 image: session.user.image || null,
-                token: (session.user as { token?: string }).token || undefined, // Assurez-vous que 'token' est géré
-                role: (["USER", "ADMIN", "SELLER"].includes((session.user as { role?: string }).role ?? "")
-                    ? (session.user as { role?: "USER" | "ADMIN" | "SELLER" }).role
-                    : "USER"),
+                token: (session.user as { token?: string }).token || undefined,
+                role: role === "ADMIN" ? "ADMIN" : "USER",
             };
             setCurrentUser(userFromSession);
         } else if (status === 'unauthenticated') {
@@ -73,59 +65,45 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
         }
     }, [session, status, setCurrentUser]);
 
-    // Type l'événement de changement
     const onChangeHandler = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        setAddress((prevAddress) => ({
-            ...prevAddress,
-            [name]: value,
-        }));
+        setAddress((prev) => ({ ...prev, [name]: value }));
     };
 
-    // Type l'événement de soumission
     const onSubmitHandler = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setMessage('');
 
-        if (!currentUser || !currentUser.id) {
-            setMessage("Erreur: Utilisateur non connecté. Redirection vers la page de connexion...");
+        if (!currentUser?.id) {
             toast.error("Veuillez vous connecter pour ajouter une adresse.");
             router.push('/login');
             return;
         }
 
         if (!address.fullName || !address.phoneNumber || !address.area || !address.city || !address.state) {
-            setMessage("Erreur: Veuillez remplir tous les champs obligatoires (Nom complet, Numéro de téléphone, Adresse, Ville, Région).");
             toast.error("Veuillez remplir tous les champs obligatoires.");
             return;
         }
 
         try {
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (currentUser.token) {
-                headers['auth-token'] = typeof currentUser.token === 'string' ? currentUser.token : '';
-            }
+            if (currentUser.token) headers['auth-token'] = currentUser.token;
 
-            // Le payload de l'adresse doit correspondre à l'interface Address de lib/types.ts
-            // Assurez-vous que isDefault est géré côté backend ou ajoutez-le ici si nécessaire
-            const addressPayload: Partial<Address> = { // Utilisez Partial car tous les champs ne sont pas dans le formulaire
+            const payload: Partial<Address> = {
                 ...address,
-                isDefault: false, // Par défaut, une nouvelle adresse n'est pas la valeur par défaut
-                // id et _id seront générés par le backend
+                isDefault: false,
             };
 
-            const response = await axios.post(
+            const res = await axios.post(
                 `${url}/api/addresses/${currentUser.id}`,
-                addressPayload, // Utilisez le payload typé
+                payload,
                 { headers }
             );
 
-            const data: { success: boolean; message?: string; addressId?: string } = response.data; // Type la réponse de l'API
+            const data: { success: boolean; message?: string; addressId?: string } = res.data;
 
-            if (response.status === 201 && data.success) {
-                setMessage(data.message || "Adresse ajoutée avec succès !");
-                toast.success(data.message || "Adresse ajoutée avec succès !");
-                // Réinitialiser le formulaire
+            if (res.status === 201 && data.success) {
+                toast.success(data.message || "Adresse ajoutée !");
                 setAddress({
                     fullName: '',
                     phoneNumber: '',
@@ -134,28 +112,21 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
                     city: '',
                     state: '',
                 });
-                fetchUserAddresses(); // Rafraîchir la liste des adresses dans le contexte
-                router.push('/cart'); // Rediriger vers le panier après l'ajout
+                fetchUserAddresses();
+                router.push('/cart');
             } else {
-                setMessage(`Erreur: ${data.message || "Échec de l'ajout de l'adresse."}`);
-                toast.error(`Erreur: ${data.message || "Échec de l'ajout de l'adresse."}`);
+                toast.error(`Erreur: ${data.message || "Échec de l'ajout."}`);
             }
-        } catch (error: unknown) { // Type l'erreur comme unknown
-            console.error('Erreur lors de l\'envoi de l\'adresse:', error);
-            if (axios.isAxiosError(error) && error.response) { // Utilise axios.isAxiosError pour affiner le type
-                setMessage(`Erreur: ${error.response.data?.message || 'Problème serveur.'}`);
-                toast.error(`Erreur: ${error.response.data?.message || 'Problème serveur.'}`);
-            } else if (error instanceof Error) { // Gère les erreurs JavaScript standard
-                setMessage(`Erreur: Pas de réponse du serveur. Vérifiez votre connexion. (${error.message})`);
-                toast.error(`Erreur: Pas de réponse du serveur.`);
-            } else { // Gère les erreurs inattendues
-                setMessage(`Erreur inattendue: ${String(error)}`);
-                toast.error(`Erreur inattendue: ${String(error)}`);
+        } catch (error: unknown) {
+            console.error("Erreur lors de l'ajout:", error);
+            if (axios.isAxiosError(error) && error.response) {
+                toast.error(error.response.data?.message || 'Erreur serveur');
+            } else {
+                toast.error('Erreur inattendue');
             }
         }
     };
 
-    // Affichage du loader pendant le chargement côté client ou la session
     if (!isClient || status === 'loading') {
         return (
             <div className="flex justify-center items-center h-screen bg-gray-100">
@@ -164,7 +135,6 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
         );
     }
 
-    // Configuration des champs d'entrée pour le formulaire
     const inputFields: InputFieldConfig[] = [
         { name: 'fullName', placeholder: 'Nom complet', Icon: FiUser, required: true, type: 'text' },
         { name: 'phoneNumber', placeholder: 'Numéro de téléphone', Icon: FiPhone, required: true, type: 'tel' },
@@ -175,7 +145,6 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
         { name: 'city', placeholder: 'Ville', Icon: FiNavigation, required: true, type: 'text' },
         { name: 'state', placeholder: 'Région', Icon: FiMail, required: true, type: 'text' },
     ];
-
 
     return (
         <>
@@ -189,23 +158,22 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
                                     Ajouter une <span className="text-blue-600">Adresse</span>
                                 </h1>
                             </div>
-                            
+
                             <form onSubmit={onSubmitHandler} className="space-y-6">
-                                {inputFields.map((field) => (
-                                    <div key={field.name} className="relative">
+                                {inputFields.map(({ name, placeholder, Icon, required, type }) => (
+                                    <div key={name} className="relative">
                                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                            <field.Icon className="text-gray-400" size={20} />
+                                            <Icon className="text-gray-400" size={20} />
                                         </div>
                                         <input
-                                            type={field.type}
-                                            name={field.name}
-                                            placeholder={field.placeholder}
-                                            // Assurez-vous que la valeur est toujours une string, car address[name] pourrait être undefined
-                                            value={address[field.name as keyof AddressFormState] || ''}
+                                            type={type}
+                                            name={name}
+                                            placeholder={placeholder}
+                                            value={address[name] || ''}
                                             onChange={onChangeHandler}
-                                            required={field.required}
+                                            required={required}
                                             className="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
-                                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
+                                                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
                                         />
                                     </div>
                                 ))}
@@ -222,25 +190,25 @@ const AddAddress = (): React.ReactElement => { // Type le composant comme retour
                                         onChange={onChangeHandler}
                                         required
                                         className="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
-                                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 resize-none"
+                                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 resize-none"
                                     />
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {cityStateFields.map((field) => (
-                                        <div key={field.name} className="relative">
+                                    {cityStateFields.map(({ name, placeholder, Icon, required, type }) => (
+                                        <div key={name} className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                                <field.Icon className="text-gray-400" size={20} />
+                                                <Icon className="text-gray-400" size={20} />
                                             </div>
                                             <input
-                                                type={field.type}
-                                                name={field.name}
-                                                placeholder={field.placeholder}
-                                                value={address[field.name as keyof AddressFormState] || ''}
+                                                type={type}
+                                                name={name}
+                                                placeholder={placeholder}
+                                                value={address[name] || ''}
                                                 onChange={onChangeHandler}
-                                                required={field.required}
+                                                required={required}
                                                 className="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
-                                                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
+                                                    focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
                                             />
                                         </div>
                                     ))}

@@ -1,49 +1,49 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ESNext",
     "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
     ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
-    "noImplicitAny": false,
-    "strictNullChecks": false,
-    "strictFunctionTypes": false,
-    "strictBindCallApply": false,
-    "strictPropertyInitialization": false,
-    "alwaysStrict": false,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "Node",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
     "forceConsistentCasingInFileNames": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
     "baseUrl": ".",
     "paths": {
-      "@/assets/*": [
-        "assets/*"
-      ],
       "@/components/*": [
         "components/*"
       ],
-      "@/*": [
-        "./*"
+      "@/lib/*": [
+        "lib/*"
+      ],
+      "@/assets/*": [
+        "assets/*"
+      ],
+      "@/context/*": [
+        "context/*"
+      ],
+      "@/app/*": [
+        "app/*"
       ]
     },
     "typeRoots": [
       "./node_modules/@types",
       "./types"
+    ],
+    "plugins": [
+      {
+        "name": "next"
+      }
     ]
   },
   "include": [
@@ -51,7 +51,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "types/**/*.ts"
+    "next.config.js"
   ],
   "exclude": [
     "node_modules"

@@ -7,24 +7,25 @@
 // --- Correction: Importation de useRouter est nécessaire car NextRouter l'utilise ---
 import type { useRouter } from 'next/navigation';
 
-// --- Définition MANUELLE des Enums si Prisma ne les exporte pas ---
-// Si vos enums sont définis directement dans votre schema.prisma avec le mot-clé 'enum',
-// et que 'npx prisma generate' fonctionne correctement, vous pourriez les importer directement de '@prisma/client'.
-// Cependant, si vous rencontrez l'erreur "n'a aucun membre exporté", cela signifie que Prisma ne les exporte pas
-// ou que le module n'est pas bien rafraîchi. Il est donc plus sûr de les définir ici.
+// --- Définition des Enums ALIGNÉES AVEC schema.prisma ---
+// Ces enums doivent correspondre exactement à celles définies dans votre prisma/schema.prisma
+// pour assurer la cohérence des types entre le frontend et le backend via Prisma.
 
 export enum OrderStatus {
     PENDING = 'PENDING',
+    PAID_SUCCESS = 'PAID_SUCCESS', // Ajouté pour correspondre à schema.prisma
+    PAYMENT_FAILED = 'PAYMENT_FAILED', // Ajouté pour correspondre à schema.prisma
     PROCESSING = 'PROCESSING',
     SHIPPED = 'SHIPPED',
     DELIVERED = 'DELIVERED',
     CANCELLED = 'CANCELLED',
-    REFUNDED = 'REFUNDED',
+    // REFUNDED a été supprimé ici s'il n'est pas dans schema.prisma OrderStatus
+    // et déplacé vers PaymentStatus si c'est un statut de paiement.
 }
 
 export enum PaymentStatus {
     PENDING = 'PENDING',
-    PAID = 'PAID',
+    COMPLETED = 'COMPLETED', // Renommé de PAID pour correspondre à schema.prisma
     FAILED = 'FAILED',
     REFUNDED = 'REFUNDED',
 }

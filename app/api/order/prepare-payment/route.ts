@@ -1,41 +1,58 @@
-// C:\xampp\htdocs\plawimadd_group\app\api\order\prepare-payment\route.ts
-// Cette route génère un ID de transaction unique pour une transaction Kkiapay,
-// après avoir vérifié que l'utilisateur est authentifié.
-
-import { NextResponse, NextRequest } from 'next/server'; // Ajout de NextRequest pour le type, bien que non utilisé directement pour GET
-import { v4 as uuidv4 } from 'uuid'; // Pour la génération d'UUID
-import { authorizeLoggedInUser, AuthResult } from '@/lib/authUtils'; // Importez la fonction d'autorisation utilisateur
+// app/api/order/prepare-payment/route.ts
+import { NextResponse, NextRequest } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
+import { authorizeLoggedInUser, AuthResult } from '@/lib/authUtils';
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-    // 1. Authentification de l'utilisateur
-    const authResult: AuthResult = await authorizeLoggedInUser(req);
-    if (!authResult.authorized) {
-        return authResult.response!; // Renvoie la réponse d'erreur fournie par authorizeLoggedInUser
-    }
-    // L'ID de l'utilisateur authentifié est disponible via authResult.userId si nécessaire, mais pas pour cette route spécifique.
+  const authResult: AuthResult = await authorizeLoggedInUser(req);
+  if (!authResult.authorized) {
+    return authResult.response!;
+  }
 
-    try {
-        // 2. Génération de l'ID de transaction unique
-        const transactionId = uuidv4();
-        console.log(`Génération d'un transactionId pour Kkiapay: ${transactionId}`);
+  try {
+    // Générer un ID de transaction unique
+    const transactionId = uuidv4();
 
-        return NextResponse.json(
-            {
-                success: true,
-                message: 'Transaction ID généré avec succès pour Kkiapay.',
-                transactionId,
-            },
-            { status: 200 }
-        );
-    } catch (_error: unknown) { // CORRECTION: Renommé 'error' en '_error'
-        console.error('Erreur lors de la génération du transactionId:', _error);
-        const errorMessage = _error instanceof Error ? _error.message : String(_error);
-        return NextResponse.json(
-            {
-                success: false,
-                message: `Erreur serveur lors de la préparation du paiement: ${errorMessage}`,
-            },
-            { status: 500 }
-        );
-    }
+    // Préparation (facultative) : Appel à l’API Kkiapay (à adapter selon besoin réel)
+    // const response = await axios.post(
+    //   'https://api.kkiapay.me/api/v1/transaction/initiate',
+    //   {
+    //     transactionId,
+    //     amount: 1000, // Exemple de montant
+    //     currency: 'XOF',
+    //     phone: '22997000000', // Exemple
+    //     email: 'test@example.com',
+    //     reason: 'Achat de produit',
+    //   },
+    //   {
+    //     headers: {
+    //       Authorization: `Bearer ${process.env.KKIAPAY_SECRET_KEY}`,
+    //       'Content-Type': 'application/json',
+    //     },
+    //   }
+    // );
+
+    console.log(`Transaction ID généré: ${transactionId}`);
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: 'Transaction ID généré avec succès',
+        transactionId,
+        // kkiapayResponse: response.data // (optionnel)
+      },
+      { status: 200 }
+    );
+  } catch (_error: unknown) {
+    console.error('Erreur lors de la génération ou appel Kkiapay :', _error);
+    const errorMessage = _error instanceof Error ? _error.message : String(_error);
+    return NextResponse.json(
+      {
+        success: false,
+        message: `Erreur lors de la préparation du paiement : ${errorMessage}`,
+      },
+      { status: 500 }
+    );
+  }
 }

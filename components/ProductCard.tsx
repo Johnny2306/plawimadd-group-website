@@ -28,8 +28,8 @@ interface ClientProduct {
     updatedAt: Date | string; // Type Date ou string selon comment vous le parsez
     category: CategoryApi; // Assurez-vous que c'est bien CategoryApi, pas seulement string
     rating?: number | null; // Ajout de la propriété 'rating', peut être null ou undefined
-    brand?: string; // Ajout de la propriété 'brand'
-    color?: string; // Ajout de la propriété 'color'
+    brand?: string | null; // <-- CORRIGÉ : Peut être null
+    color?: string | null; // <-- CORRIGÉ : Peut être null
 }
 
 // Interface pour les props du composant ProductCard
@@ -84,7 +84,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         // Appeler addToCart et attendre son résultat
         const success = await addToCart(product.id);
         if (success) {
-            toast.success('Produit ajouté au panier !');
+            toast.success('Ajouté au panier !');
         }
         // Le toast d'erreur est déjà géré par AppContext si l'opération échoue
     };
@@ -130,9 +130,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                                     : 'bg-white hover:bg-blue-600 hover:text-white text-blue-600'
                             }
                             flex items-center justify-center`}
-                        aria-label={isInCart ? 'Déjà au panier' : 'Produit ajouter au panier'}
+                        aria-label={isInCart ? 'Déjà au panier' : 'Ajouter au panier'}
                         disabled={isInCart}
-                        title={isInCart ? 'Déjà au panier' : 'Produit ajouter au panier'}
+                        title={isInCart ? 'Déjà au panier' : 'Ajouter au panier'}
                         style={{ boxShadow: '0 4px 10px rgba(0, 123, 255, 0.3)' }}
                     >
                         {isInCart ? <FiCheck size={20} /> : <FiShoppingCart size={20} />}
