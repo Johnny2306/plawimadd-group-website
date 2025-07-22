@@ -9,8 +9,8 @@ import Script from "next/script"; // Pour charger Kkiapay correctement
 import React, { ReactNode } from 'react';
 
 export const metadata = {
-    title: "PlawimAdd - E-commerce",
-    description: "Un site e-commerce construit avec Next.js",
+    title: "Plawimadd Group",
+    description: "Plawimadd Group - Votre boutique en ligne de produits électronique",
 };
 
 interface RootLayoutProps {

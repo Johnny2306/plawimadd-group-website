@@ -27,7 +27,10 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider = ({ children }: { children: ReactNode }) => {
     const router = useRouter();
     const { data: session, status } = useSession();
-    const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+    
+    // CORRECTION ICI : Utilisation de NEXT_PUBLIC_NEXTAUTH_URL pour l'URL de base côté client
+    const url = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://localhost:3000';
+    
     const currency = 'XOF' as const;
 
     const [products, setProducts] = useState<Product[]>([]);
