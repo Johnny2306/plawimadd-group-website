@@ -28,6 +28,9 @@ type ProductWithRelations = {
     createdAt: Date;
     updatedAt: Date;
     offerPrice: Decimal | null;
+    rating: number | null; // Ajouté pour correspondre au schéma Prisma
+    brand: string | null; // Ajouté pour correspondre au schéma Prisma
+    color: string | null; // Ajouté pour correspondre au schéma Prisma
     categoryId: string;
     category: CategoryFromPrisma;
     reviews: { rating: number }[];
@@ -41,6 +44,8 @@ interface ProductRequest {
     offerPrice?: number | null;
     stock: number;
     imgUrl: string | string[];
+    brand?: string | null; // Ajouté pour le POST
+    color?: string | null; // Ajouté pour le POST
 }
 
 // Type pour le produit tel qu'il sera retourné par l'API (après formatage)
@@ -59,6 +64,8 @@ type ApiResponseProduct = {
         name: string;
     };
     rating: number | null;
+    brand: string | null; // Ajouté pour la réponse API
+    color: string | null; // Ajouté pour la réponse API
 };
 
 
@@ -135,7 +142,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     try {
-        const { name, description, category, price, offerPrice, stock, imgUrl } = await req.json() as ProductRequest;
+        const { name, description, category, price, offerPrice, stock, imgUrl, brand, color } = await req.json() as ProductRequest;
 
         if (!name || !description || !category || price === undefined || stock === undefined || !imgUrl) {
             return NextResponse.json(
@@ -186,6 +193,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 offerPrice: finalOfferPrice,
                 stock: stock,
                 imgUrl: imgUrlString, // Stocke une chaîne JSON propre (e.g., "[\"/path/to/img.jpg\"]")
+                brand: brand || null, // Ajouté
+                color: color || null, // Ajouté
             },
             include: {
                 category: true,
@@ -209,7 +218,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 id: newProduct.category.id,
                 name: newProduct.category.name,
             },
-            rating: null,
+            rating: newProduct.rating, // Assurez-vous que le rating est inclus
+            brand: newProduct.brand, // Ajouté
+            color: newProduct.color, // Ajouté
         };
 
         return NextResponse.json(
@@ -264,6 +275,8 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
                     name: product.category.name,
                 },
                 rating: averageRating,
+                brand: product.brand, // Ajouté
+                color: product.color, // Ajouté
             };
             return formattedProduct;
         });

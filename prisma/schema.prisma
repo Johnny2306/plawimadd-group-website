@@ -3,7 +3,7 @@
 // Définition de la source de données (base de données)
 datasource db {
   provider = "mysql" // Spécifie le type de base de données (MySQL dans ce cas)
-  url        = env("DATABASE_URL") // Récupère l'URL de connexion depuis les variables d'environnement
+  url      = env("DATABASE_URL") // Récupère l'URL de connexion depuis les variables d'environnement
 }
 
 // Définition du générateur de client Prisma
@@ -31,7 +31,7 @@ model User {
   resetPasswordToken    String?   @unique @db.VarChar(255) @map("resetPasswordToken") // Jeton de réinitialisation de mot de passe (optionnel)
   resetPasswordExpires  DateTime? @db.DateTime(0) @map("resetPasswordExpires") // Date d'expiration du jeton (optionnel)
   createdAt             DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt             DateTime  @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt             DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
   phoneNumber           String?   @db.VarChar(15) @map("phoneNumber") // Numéro de téléphone (optionnel)
 
   // Relations avec les autres modèles
@@ -45,24 +45,24 @@ model User {
 
 // Modèle pour les adresses des utilisateurs
 model Address {
-  id            Int         @id @default(autoincrement()) // Clé primaire auto-incrémentée
-  userId        String      @db.VarChar(255) // ID de l'utilisateur auquel l'adresse est liée
-  fullName      String      @db.VarChar(255) // Nom complet du destinataire
-  phoneNumber   String      @db.VarChar(20)  // Numéro de téléphone du destinataire
-  pincode       String?     @db.VarChar(10)  // Code postal (optionnel)
-  area          String      @db.Text             // Zone ou quartier
-  city          String      @db.VarChar(100) // Ville
-  state         String      @db.VarChar(100) // État/Région
-  isDefault     Boolean     @default(false) @map("isDefault") // Indique si c'est l'adresse par défaut
-  createdAt     DateTime    @default(now()) // Date de création de l'enregistrement
-  updatedAt     DateTime    @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  id            Int       @id @default(autoincrement()) // Clé primaire auto-incrémentée
+  userId        String    @db.VarChar(255) // ID de l'utilisateur auquel l'adresse est liée
+  fullName      String    @db.VarChar(255) // Nom complet du destinataire
+  phoneNumber   String    @db.VarChar(20)  // Numéro de téléphone du destinataire
+  pincode       String?   @db.VarChar(10)  // Code postal (optionnel)
+  area          String    @db.Text           // Zone ou quartier
+  city          String    @db.VarChar(100) // Ville
+  state         String    @db.VarChar(100) // État/Région
+  isDefault     Boolean   @default(false) @map("isDefault") // Indique si c'est l'adresse par défaut
+  createdAt     DateTime  @default(now()) // Date de création de l'enregistrement
+  updatedAt     DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // NOUVEAUX CHAMPS AJOUTÉS :
-  street        String?     @db.VarChar(255) // Rue (optionnel)
-  country       String      @db.VarChar(100) // Pays (obligatoire, ajustez si besoin d'être optionnel)
+  street        String?   @db.VarChar(255) // Rue (optionnel)
+  country       String    @db.VarChar(100) // Pays (obligatoire, ajustez si besoin d'être optionnel)
 
   // Relation avec le modèle User
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   // Relation avec le modèle Order (une adresse peut être associée à plusieurs commandes)
   orders        Order[]
 
@@ -76,7 +76,7 @@ model CartItem {
   productId String    @db.VarChar(255) // ID du produit dans le panier
   quantity  Int       // Quantité du produit
   createdAt DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt DateTime  @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // Relations avec les modèles User et Product
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -90,11 +90,11 @@ model CartItem {
 model Category {
   id          String    @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
   name        String    @unique @db.VarChar(255) // Nom de la catégorie (doit être unique)
-  description String?   @db.Text             // Description de la catégorie (optionnel)
+  description String?   @db.Text           // Description de la catégorie (optionnel)
   imageUrl    String?   @db.VarChar(255) // URL de l'image de la catégorie (optionnel)
   products    Product[] // Relation inverse pour lister les produits d'une catégorie
   createdAt   DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt   DateTime  @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt   DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   @@map("categories") // Nom de la table dans la base de données
 }
@@ -145,7 +145,7 @@ model Order {
 
   orderDate             DateTime      @default(now()) // Date de la commande
   createdAt             DateTime      @default(now()) // Date de création de l'enregistrement
-  updatedAt             DateTime      @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt             DateTime      @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   shippingAddressId     Int?          @map("shippingAddressId") // Clé étrangère vers l'adresse (optionnel)
 
@@ -166,7 +166,7 @@ model OrderItem {
   quantity      Int       // Quantité du produit dans cette commande
   priceAtOrder  Decimal   @db.Decimal(10, 2) @map("priceAtOrder") // Prix du produit au moment de la commande
   createdAt     DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt     DateTime  @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt     DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // Relations
   order         Order     @relation(fields: [orderId], references: [id])
@@ -186,7 +186,7 @@ model Payment {
   status        PaymentStatus? @default(PENDING) // Statut du paiement (utilisation de l'enum PaymentStatus)
   paymentDate   DateTime?     @map("paymentDate") // Date du paiement (optionnel)
   createdAt     DateTime      @default(now()) // Date de création de l'enregistrement
-  updatedAt     DateTime      @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt     DateTime      @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // Relation avec le modèle Order
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -198,12 +198,12 @@ model Payment {
 model Product {
   id          String    @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
   name        String    @db.VarChar(255) // Nom du produit
-  description String?   @db.Text             // Description du produit (optionnel)
+  description String?   @db.Text           // Description du produit (optionnel)
   price       Decimal   @db.Decimal(10, 2) // Prix du produit
   stock       Int       // Quantité en stock
   imgUrl      String?   @db.Text @map("imgUrl") // URL(s) de l'image (peut être un JSON string d'URLs)
   createdAt   DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt   DateTime  @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt   DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
   offerPrice  Decimal?  @db.Decimal(10, 2) @map("offerPrice") // Prix promotionnel (optionnel)
   rating      Float?    @default(0.0) // Ajout du champ rating
   brand       String?   @db.VarChar(255) // <-- AJOUTÉ
@@ -227,9 +227,9 @@ model Review {
   productId String    @db.VarChar(255) // ID du produit évalué
   userId    String    @db.VarChar(255) // ID de l'utilisateur qui a laissé l'avis
   rating    Int       // Note (ex: de 1 à 5)
-  comment   String?   @db.Text             // Commentaire (optionnel)
+  comment   String?   @db.Text           // Commentaire (optionnel)
   createdAt DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt DateTime  @updatedAt          // Date de la dernière mise à jour de l'enregistrement
+  updatedAt DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // Relations
   product   Product   @relation(fields: [productId], references: [id])
