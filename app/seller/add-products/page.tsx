@@ -1,11 +1,11 @@
 // app/seller/add-products/page.tsx
 'use client';
-import React, { useState, FormEvent, ChangeEvent } from 'react'; // Importez React et les types d'événements
+import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { assets } from '@/assets/assets';
 import Image from 'next/image';
-import { toast } from 'react-toastify';
+import { toast } from 'react-toastify'; // Importez toast de react-toastify
 import { useRouter } from 'next/navigation';
-import { StaticImageData } from 'next/image'; // Importez StaticImageData
+import { StaticImageData } from 'next/image';
 
 // Définition des catégories avec un type explicite
 const CATEGORIES: string[] = [
@@ -51,14 +51,21 @@ const AddProduct = (): React.ReactElement => {
         }
 
         try {
+            // Étape 1: Télécharger toutes les images sur Cloudinary
             const uploadedImageUrls: string[] = await Promise.all( // Type le tableau de URLs
                 validFiles.map(async (file: File) => { // Type 'file' comme File
                     const formData = new FormData();
                     formData.append('image', file);
 
+                    // TODO: Si votre API d'upload nécessite un token d'authentification (ex: pour authorizeAdminRequest),
+                    // vous devrez l'ajouter ici dans les headers de la requête fetch.
+                    // const authToken = 'VOTRE_TOKEN_D_AUTH_ICI'; // Récupérez-le depuis votre contexte d'authentification
                     const uploadRes = await fetch('/api/upload-image', {
                         method: 'POST',
                         body: formData,
+                        // headers: {
+                        //     'Authorization': `Bearer ${authToken}`, // Exemple si vous utilisez un token Bearer
+                        // },
                     });
 
                     if (!uploadRes.ok) {
@@ -71,7 +78,8 @@ const AddProduct = (): React.ReactElement => {
                 })
             );
 
-            // Création de l'objet productData avec les types corrects
+            // Étape 2: Préparer les données du produit
+            // CORRECTION ICI: imgUrl est stringifié car le backend attend une chaîne JSON
             const productData = {
                 name,
                 description,
@@ -79,12 +87,19 @@ const AddProduct = (): React.ReactElement => {
                 price: parseFloat(price),
                 offerPrice: offerPrice ? parseFloat(offerPrice) : null,
                 stock: parseInt(stock),
-                imgUrl: JSON.stringify(uploadedImageUrls), // imgUrl est une chaîne JSON d'un tableau d'URL
+                imgUrl: JSON.stringify(uploadedImageUrls), // <-- RE-MODIFIÉ pour envoyer une chaîne JSON
             };
 
+            // Étape 3: Envoyer les données du produit à l'API
+            // TODO: Si votre API d'ajout de produit nécessite un token d'authentification,
+            // vous devrez l'ajouter ici dans les headers de la requête fetch.
+            // const authToken = 'VOTRE_TOKEN_D_AUTH_ICI'; // Récupérez-le depuis votre contexte d'authentification
             const res = await fetch('/api/products', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    // 'Authorization': `Bearer ${authToken}`, // Exemple si vous utilisez un token Bearer
+                },
                 body: JSON.stringify(productData),
             });
 

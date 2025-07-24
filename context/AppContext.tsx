@@ -28,8 +28,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const router = useRouter();
     const { data: session, status } = useSession();
     
-    // CORRECTION ICI : Utilisation de NEXT_PUBLIC_NEXTAUTH_URL pour l'URL de base côté client
-    const url = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://localhost:3000';
+    // CORRECTION FINALE ICI :
+    // Pour les API routes Next.js qui sont dans le même projet,
+    // l'URL de base doit être une chaîne vide ('') ou '.' pour que les appels soient relatifs.
+    // Le navigateur gérera automatiquement l'origine correcte (https://votre-domaine-vercel.app).
+    // NEXT_PUBLIC_NEXTAUTH_URL est toujours nécessaire pour NextAuth.js lui-même,
+    // mais pas pour les appels axios à vos propres API routes.
+    const url = ''; // Ou '.' si vous préférez, mais '' est plus courant pour les appels relatifs à la racine.
     
     const currency = 'XOF' as const;
 
@@ -88,12 +93,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setLoadingProducts(true);
         setErrorProducts(null);
         try {
+            // L'appel devient axios.get('/api/products')
             const response = await axios.get<Product[]>(`${url}/api/products`);
             if (response.status === 200) {
                 const validProducts = response.data.map(product => ({
                     ...product,
                     id: String(product.id),
-                    // Ensure imgUrl is always an array for client-side consistency
                     imgUrl: Array.isArray(product.imgUrl)
                         ? product.imgUrl
                         : (product.imgUrl ? [product.imgUrl] : ['/placeholder.jpg'])
@@ -438,7 +443,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         searchTerm,
         setSearchTerm,
         selectedCategory,
-        setSelectedCategory,
+        setSelectedCategory, // C'était setCategory, mais AppContextType attend setSelectedCategory
         filteredProducts,
         cartItems,
         loadingCart,

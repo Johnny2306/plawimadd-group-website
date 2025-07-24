@@ -25,6 +25,7 @@ export default function RootLayout({ children }: RootLayoutProps): React.ReactNo
                     <AppProvider>
                         <Navbar />
                         {children}
+                        {/* ToastContainer est correctement configuré ici */}
                         <ToastContainer
                             position="bottom-right"
                             autoClose={3000}
@@ -43,7 +44,7 @@ export default function RootLayout({ children }: RootLayoutProps): React.ReactNo
 
                 {/* Script Kkiapay chargé proprement avec la nouvelle URL */}
                 <Script
-                    src="https://cdn.kkiapay.me/k.js" // <-- CORRECTION ICI : Utilisation de .v1.js
+                    src="https://cdn.kkiapay.me/k.js" // L'URL actuelle. Si des problèmes, essayez 'https://cdn.kkiapay.me/k.v1.js'
                     strategy="afterInteractive"
                 />
             </body>

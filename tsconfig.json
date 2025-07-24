@@ -20,10 +20,12 @@
       "@/lib/*": ["lib/*"],
       "@/assets/*": ["assets/*"],
       "@/context/*": ["context/*"],
-      "@/app/*": ["app/*"]
+      "@/app/*": ["app/*"],
+      "@/types/*": ["types/*"] // <-- AJOUTÉ: Assurez-vous que cette ligne est présente si vous utilisez '@/types/kkiapay'
     },
-    "typeRoots": ["./node_modules/@types", "./types"],
-    "types": [ ],          // ✅ AJOUTÉ POUR QUE LES TYPES ÉTENDUS SOIENT CHARGÉS
+    "typeRoots": ["./node_modules/@types", "./types"]
+    // "types": [ ] // <-- CETTE LIGNE A ÉTÉ SUPPRIMÉE
+    ,
     "plugins": [
       {
         "name": "next"
