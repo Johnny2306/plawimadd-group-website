@@ -13,42 +13,47 @@ import type { useRouter } from 'next/navigation';
 
 export enum OrderStatus {
     PENDING = 'PENDING',
-    PAID_SUCCESS = 'PAID_SUCCESS', // Ajouté pour correspondre à schema.prisma
-    PAYMENT_FAILED = 'PAYMENT_FAILED', // Ajouté pour correspondre à schema.prisma
+    PAID_SUCCESS = 'PAID_SUCCESS',
+    PAYMENT_FAILED = 'PAYMENT_FAILED',
     PROCESSING = 'PROCESSING',
     SHIPPED = 'SHIPPED',
     DELIVERED = 'DELIVERED',
     CANCELLED = 'CANCELLED',
-    // REFUNDED a été supprimé ici s'il n'est pas dans schema.prisma OrderStatus
-    // et déplacé vers PaymentStatus si c'est un statut de paiement.
 }
 
 export enum PaymentStatus {
     PENDING = 'PENDING',
-    COMPLETED = 'COMPLETED', // Renommé de PAID pour correspondre à schema.prisma
+    COMPLETED = 'COMPLETED',
     FAILED = 'FAILED',
     REFUNDED = 'REFUNDED',
 }
 
-// Correction de l'interface Product pour mieux correspondre à ClientProduct et aux données API
 export interface Product {
     id: string;
     name: string;
-    description: string | null; // Assurez-vous que c'est bien nullable
+    description: string | null;
     price: number;
-    offerPrice: number | null; // Assurez-vous que c'est bien nullable
+    offerPrice: number | null;
     stock: number;
-    imgUrl: string[]; // C'est un tableau de chaînes pour le client
-    createdAt: Date | string; // Type Date ou string
-    updatedAt: Date | string; // Type Date ou string
-    category: { // Catégorie est un objet ici, comme dans ClientProduct
+    imgUrl: string[];
+    createdAt: Date | string;
+    updatedAt: Date | string;
+    category: {
         id: string;
         name: string;
     };
-    rating?: number | null; // Peut être undefined ou null
-    brand?: string | null; // <-- MIS À JOUR : Peut être null
-    color?: string | null; // <-- MIS À JOUR : Peut être null
+    rating?: number | null;
+    brand?: string | null;
+    color?: string | null;
 }
+
+// Correction: Nouveau type pour la réponse de l'API produits, basé sur votre route.ts
+export type ProductsApiResponse = { success: boolean; data: Product[] };
+
+// NOUVEAU : Type pour la réponse de l'API des commandes (pour fetchUserOrders)
+// Il peut s'agir d'un tableau direct d'Order, ou d'un objet avec une propriété 'data' ou 'orders'
+export type OrdersApiResponse = { success: boolean; data: Order[] } | { orders: Order[] } | Order[];
+
 
 export interface User {
     id: string;
@@ -59,49 +64,60 @@ export interface User {
     lastName?: string;
     role?: 'ADMIN' | 'USER';
     token?: string;
+    phoneNumber?: string | null; // Rendre phoneNumber optionnel et nullable
 }
 
-export interface OrderItem {
+// NOUVEAU : Type pour les articles de commande envoyés au backend (payload de création)
+export interface OrderItemForCreatePayload {
     productId: string;
     quantity: number;
-    price: number;
-    name: string;
-    imgUrl: string; // Devrait être une chaîne unique pour un article de commande spécifique
+    price: number; // Le prix unitaire au moment de l'ajout au panier/checkout
+}
+
+// NOUVEAU : Type pour les articles de commande reçus du backend (pour affichage)
+export interface OrderItemForDisplay {
+    productId: string;
+    quantity: number;
+    priceAtOrder: number; // Le prix unitaire au moment où la commande a été passée (nombre)
+    product: { // Détails du produit inclus depuis la relation Prisma
+        name: string;
+        imgUrl: string | null;
+    };
 }
 
 export interface Address {
-    id?: string; // L'API peut renvoyer _id ou id
-    _id?: string; // Maintenu pour la flexibilité si votre API utilise _id
-    userId: string; // <--- C'EST LA LIGNE CLÉ À AJOUTER/CORRIGER !!!
+    id?: number; // L'ID d'adresse est un INT dans schema.prisma
+    userId: string;
     fullName: string;
     phoneNumber: string;
-    pincode: string | null; // <-- CORRIGÉ : Le code pin est maintenant optionnel/nullable
+    pincode: string | null;
     area: string;
     city: string;
     state: string;
     isDefault: boolean;
-    street?: string; // Optionnel, si votre backend le permet
-    country?: string; // Optionnel, si votre backend le permet
+    street?: string;
+    country?: string;
 }
 
+// Mise à jour : Utilise OrderItemForCreatePayload pour les items
 export interface CreateOrderPayload {
-    items: OrderItem[];
+    id: string; // L'ID de transaction Kkiapay généré par le frontend, qui sera aussi l'ID de la commande
+    items: OrderItemForCreatePayload[]; // Utilise le nouveau type spécifique ici
     totalAmount: number;
-    shippingAddress: Address;
+    shippingAddress: Address; // Utilisation de Address pour la clarté
     paymentMethod: string;
-    transactionId?: string;
     userEmail: string;
-    userPhoneNumber: string;
+    userPhoneNumber: string | null; // Rendu nullable
     currency: string;
 }
 
+// Mise à jour : Utilise OrderItemForDisplay pour les items
 export interface Order {
-    id: string;
+    id: string; // L'ID de la commande est le kkiapayTransactionId dans votre DB
     userId: string;
-    totalAmount: number;
-    kakapayTransactionId: string | null;
-    status: OrderStatus; // Utilise l'enum défini
-    paymentStatus: PaymentStatus; // Utilise l'enum défini
+    totalAmount: number; // Maintenant un number, converti dans l'API
+    status: OrderStatus;
+    paymentStatus: PaymentStatus;
     shippingAddressLine1: string;
     shippingAddressLine2: string | null;
     shippingCity: string;
@@ -109,14 +125,17 @@ export interface Order {
     shippingZipCode: string | null;
     shippingCountry: string;
     userEmail: string;
-    userPhoneNumber: string;
+    userPhoneNumber: string | null; // Rendu nullable
     currency: string;
-    orderDate: Date | string; // Peut être Date ou string
-    createdAt: Date | string; // Peut être Date ou string
-    updatedAt: Date | string; // Peut être Date ou string
-    shippingAddressId: string | null; // L'ID d'adresse est une string (UUID)
-    orderItems: OrderItem[];
+    orderDate: Date | string;
+    createdAt: Date | string;
+    updatedAt: Date | string;
+    shippingAddressId: number | null; // L'ID d'adresse est un INT dans schema.prisma
+    orderItems: OrderItemForDisplay[]; // Utilise le nouveau type spécifique ici
     shippingAddress?: Address | null;
+    // NOUVEAUX CHAMPS AJOUTÉS POUR LA RÉCUPÉRATION DES DÉTAILS DE PAIEMENT
+    paymentMethod: string | null; // Méthode de paiement (ex: "Kkiapay")
+    transactionId: string | null; // L'ID de transaction Kkiapay réel
 }
 
 export type NextRouter = ReturnType<typeof useRouter>;
@@ -138,18 +157,21 @@ export interface AppContextType {
     getCartCount: () => number;
     getCartAmount: () => number;
     currency: string;
-    formatPrice: (price: number) => string; // <-- Nom de la fonction standardisé à 'formatPrice'
+    formatPrice: (price: number) => string;
     url: string;
     currentUser: User | null;
     setCurrentUser: (user: User | null) => void;
     isLoggedIn: boolean;
     userOrders: Order[];
     loadingOrders: boolean;
-    fetchUserOrders: () => Promise<void>;
+    errorFetchingOrders: string | null;
     userAddresses: Address[];
     loadingAddresses: boolean;
+    errorFetchingAddresses: string | null;
+    fetchUserOrders: () => Promise<void>;
     fetchUserAddresses: () => Promise<void>;
     router: NextRouter;
+    clearCart: () => void;
     deliveryFee: number;
     setDeliveryFee: (fee: number) => void;
     loadCartData: () => Promise<void>;

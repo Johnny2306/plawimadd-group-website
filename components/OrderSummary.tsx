@@ -1,23 +1,26 @@
 // components/OrderSummary.tsx
 'use client';
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useAppContext } from "@/context/AppContext";
 import { toast } from "react-toastify";
 import axios from "axios";
 import { Loader2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-// Importez OrderStatus et PaymentStatus de '@/lib/types'
-import { Address, OrderItem, Order, OrderStatus, PaymentStatus, Product } from '@/lib/types';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { v4 as uuidv4 } from 'uuid'; // Pour générer l'ID de transaction Kkiapay
 
-// Ajoutez la déclaration minimale pour KkiapayErrorResponse si elle n'est pas déjà globale
+// MISE À JOUR : Suppression des imports inutilisés (Order, OrderStatus, PaymentStatus)
+// Ces types sont indirectement utilisés via CreateOrderPayload et Address,
+// donc les importer directement ici n'est pas nécessaire et cause des avertissements ESLint.
+import { Address, Product, CreateOrderPayload, OrderItemForCreatePayload } from '@/lib/types';
+
+// Définitions de types pour la réponse Kkiapay
 type KkiapayErrorResponse = {
     transactionId?: string;
     reason?: { code?: string; message?: string };
     message?: string;
 };
 
-// Déclaration minimale pour KkiapaySuccessResponse si elle n'est pas déjà globale
 type KkiapaySuccessResponse = {
     transactionId: string;
     data?: string;
@@ -29,63 +32,32 @@ type KkiapaySuccessResponse = {
     phone?: string;
 };
 
-// IMPORTANT : Les interfaces KkiapayOptions, KkiapaySuccessResponse, KkiapayErrorReason,
-// et KkiapayErrorResponse, ainsi que le bloc `declare global`,
-// DOIVENT ÊTRE DÉPLACÉS DANS UN FICHIER DE DÉFINITION GLOBALE (.d.ts),
-// comme `kkiapay.d.ts` dans votre projet.
-// JE LES AI SUPPRIMÉES D'ICI. Assurez-vous que votre kkiapay.d.ts est bien configuré comme discuté précédemment.
-
-// kkiapay.d.ts (Exemple de contenu pour référence, ce fichier ne doit PAS être ici)
-/*
-// kkiapay.d.ts
-interface KkiapayOptions {
-    amount: number;
-    api_key: string;
-    callback: string;
-    transaction_id: string;
-    email?: string;
-    phone?: string;
-    position?: "center" | "right" | "left";
-    sandbox?: boolean;
-    data?: string;
-}
-
-interface KkiapaySuccessResponse {
-    transactionId: string;
-    data?: string;
-    amount?: number;
-    paymentMethod?: string;
-    reference?: string;
-    status?: string;
-    email?: string;
-    phone?: string;
-}
-
-interface KkiapayErrorReason {
-    code?: string;
-    message?: string;
-}
-
-interface KkiapayErrorResponse {
-    transactionId?: string;
-    reason?: KkiapayErrorReason;
-    message?: string;
-}
-
+// Déclaration de l'interface globale pour window.kkiapay
 declare global {
     interface Window {
-        openKkiapayWidget: (options: KkiapayOptions) => void;
+        openKkiapayWidget: (options: {
+            amount: number;
+            api_key: string;
+            callback: string;
+            transaction_id: string;
+            email?: string;
+            phone?: string;
+            position?: string;
+            sandbox?: boolean;
+            data?: string;
+        }) => void;
         addSuccessListener: (callback: (response: KkiapaySuccessResponse) => void) => void;
-        addFailedListener: (callback: (error: KkiapayErrorResponse) => void) => void;
         removeSuccessListener: (callback: (response: KkiapaySuccessResponse) => void) => void;
+        addFailedListener: (callback: (error: KkiapayErrorResponse) => void) => void;
         removeFailedListener: (callback: (error: KkiapayErrorResponse) => void) => void;
     }
 }
-*/
-// FIN DE L'EXEMPLE Kkiapay.d.ts - Ne doit pas être dans ce fichier !
 
 const OrderSummary = () => {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
+
     const {
         currency,
         getCartCount,
@@ -95,58 +67,171 @@ const OrderSummary = () => {
         loadingAddresses,
         fetchUserAddresses,
         url,
-        products, // C'est maintenant de type Product[]
+        products,
         cartItems,
-        formatPrice, // <--- C'EST ICI QUE LE CHANGEMENT A ÉTÉ FAIT AVANT
+        formatPrice,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        clearCart, // Ignorer cet avertissement car clearCart est une fonction fournie par le contexte
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        loadCartData, // Maintenu pour le linter, mais plus appelé directement ici
     } = useAppContext();
 
+    // CORRECTION ICI : Initialiser avec null ou une valeur par défaut, pas avec la variable elle-même
     const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
+    const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showKkiapayWidget, setShowKkiapayWidget] = useState(false);
     const [transactionIdForKkiapay, setTransactionIdForKkiapay] = useState<string | null>(null);
-    const [preparedOrderPayload, setPreparedOrderPayload] = useState<Order | null>(null);
 
     const [isKkiapayWidgetApiReady, setIsKkiapayWidgetApiReady] = useState(false);
     const kkiapayApiCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const kkiapayOpenRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Assurez-vous que le calcul du total est correct. Le 2% est-il un frais ?
-    const totalAmountToPay = getCartCount() > 0 ? getCartAmount() + Math.floor(getCartAmount() * 0.02) : 0;
+    const [addressLoadingTimeoutId, setAddressLoadingTimeoutId] = useState<NodeJS.Timeout | null>(null);
+    const [displayPromptForAddress, setDisplayPromptForAddress] = useState(false);
+
+    const totalAmountToPay = getCartAmount();
 
     const KKIAPAY_PUBLIC_API_KEY: string | undefined = process.env.NEXT_PUBLIC_KKIAPAY_PUBLIC_API_KEY;
 
-    // --- NOUVEL EFFECT POUR CHARGER LES ADRESSES AU MONTAGE ---
+    // --- EFFECT POUR DÉCLENCHER LE CHARGEMENT INITIAL DES ADRESSES ---
     useEffect(() => {
-        // Appeler fetchUserAddresses si les adresses ne sont pas encore chargées
-        // et que l'utilisateur est connecté.
+        console.log("[OrderSummary] Initial fetch useEffect. currentUser:", !!currentUser, "userAddresses.length:", userAddresses.length, "loadingAddresses:", loadingAddresses);
         if (currentUser && currentUser.id && userAddresses.length === 0 && !loadingAddresses) {
-            console.log("[OrderSummary] Initial fetch of user addresses...");
+            console.log("[OrderSummary] Déclenchement du chargement initial des adresses via AppContext...");
             fetchUserAddresses();
         }
     }, [currentUser, userAddresses.length, loadingAddresses, fetchUserAddresses]);
 
-
-    // --- EFFECT POUR DÉFINIR L'ADRESSE SÉLECTIONNÉE (Y COMPRIS PAR DÉFAUT) ---
+    // --- EFFECT CONSOLIDÉ POUR GÉRER LE TIMEOUT, LE PROMPT ET LA SÉLECTION D'ADRESSE ---
     useEffect(() => {
-        if (!loadingAddresses && userAddresses.length > 0) {
-            console.log("[OrderSummary] userAddresses updated, attempting to set default/first address.");
-            console.log("[OrderSummary] Current userAddresses:", userAddresses); // Log détaillé
-            const defaultAddress = userAddresses.find((addr: Address) => addr.isDefault);
-            if (defaultAddress) {
-                console.log("[OrderSummary] Default address found and set:", defaultAddress);
-                setSelectedAddress(defaultAddress);
-            } else {
-                // Si aucune adresse par défaut n'est trouvée, sélectionnez la première
-                console.log("[OrderSummary] No default address found, setting first address:", userAddresses[0]);
-                setSelectedAddress(userAddresses[0]);
-            }
-        } else if (!loadingAddresses && userAddresses.length === 0) {
-            console.log("[OrderSummary] No addresses available, setting selectedAddress to null.");
-            setSelectedAddress(null);
-        }
-    }, [userAddresses, loadingAddresses]);
+        console.log("[Address Effect Debug] Effect triggered. loadingAddresses:", loadingAddresses, "userAddresses.length:", userAddresses.length, "selectedAddressId (before effect logic):", selectedAddressId);
 
+        if (addressLoadingTimeoutId) {
+            clearTimeout(addressLoadingTimeoutId);
+            setAddressLoadingTimeoutId(null);
+            console.log("[Address Effect Debug] Cleared existing address loading timeout.");
+        }
+
+        if (loadingAddresses) {
+            if (!addressLoadingTimeoutId) {
+                console.log("[Address Effect Debug] Loading in progress. Starting 60-second timeout for address loading...");
+                const id = setTimeout(() => {
+                    console.log("[Address Effect Debug] Address loading timed out after 60 seconds. Prompting user to add address.");
+                    setDisplayPromptForAddress(true);
+                    setAddressLoadingTimeoutId(null);
+                }, 60000);
+                setAddressLoadingTimeoutId(id);
+            }
+        } else {
+            console.log("[Address Effect Debug] Loading finished. userAddresses:", userAddresses);
+            if (userAddresses.length === 0) {
+                console.log("[Address Effect Debug] No addresses found after loading. Displaying prompt.");
+                setDisplayPromptForAddress(true);
+                setSelectedAddress(null);
+                setSelectedAddressId(null);
+            } else {
+                console.log("[Address Effect Debug] Addresses found after loading. Hiding prompt and attempting to select address.");
+                setDisplayPromptForAddress(false);
+
+                const newAddressIdFromParam = searchParams.get('newAddressId');
+                let addressToSelect: Address | undefined;
+
+                if (newAddressIdFromParam) {
+                    // Convertir newAddressIdFromParam en nombre pour la recherche
+                    const parsedNewAddressId = parseInt(newAddressIdFromParam, 10);
+                    if (!isNaN(parsedNewAddressId)) {
+                        addressToSelect = userAddresses.find((addr: Address) => addr.id === parsedNewAddressId);
+                    }
+                    if (addressToSelect) {
+                        console.log("[Address Effect Debug] Found address via newAddressId param:", addressToSelect);
+                        if (!addressToSelect.isDefault && currentUser && currentUser.id) {
+                            console.log("[Address Effect Debug] Setting new address as default via API...");
+                            axios.put(
+                                `${url}/api/addresses/${currentUser.id}`,
+                                {
+                                    id: addressToSelect.id, // L'ID est un nombre ici
+                                    isDefault: true,
+                                    fullName: addressToSelect.fullName,
+                                    phoneNumber: addressToSelect.phoneNumber,
+                                    area: addressToSelect.area,
+                                    city: addressToSelect.city,
+                                    state: addressToSelect.state,
+                                    street: addressToSelect.street,
+                                    country: addressToSelect.country,
+                                    pincode: addressToSelect.pincode,
+                                },
+                                { headers: { 'Content-Type': 'application/json' } }
+                            ).then(response => {
+                                if (response.data.success) {
+                                    toast.success("Nouvelle adresse définie par défaut !");
+                                    fetchUserAddresses();
+                                    router.replace(pathname);
+                                    console.log("[Address Effect Debug] Default address set successfully, routing to clear param.");
+                                } else {
+                                    toast.error("Échec de la définition de la nouvelle adresse par défaut.");
+                                    console.warn("[Address Effect Debug] Failed to set new address as default:", response.data.message);
+                                }
+                            }).catch(error => {
+                                console.error("[Address Effect Debug] Error setting new address as default:", error);
+                                toast.error("Erreur réseau lors de la mise à jour de l'adresse par défaut.");
+                            });
+                        }
+                    } else {
+                        console.log("[Address Effect Debug] newAddressId param present, but address not found in userAddresses. Falling back to default/first.");
+                    }
+                }
+
+                if (!addressToSelect) {
+                    const defaultAddress = userAddresses.find((addr: Address) => addr.isDefault);
+                    if (defaultAddress) {
+                        console.log("[Address Effect Debug] No newAddressId or not found, found default address:", defaultAddress);
+                        addressToSelect = defaultAddress;
+                    } else if (userAddresses.length > 0) {
+                        console.log("[Address Effect Debug] No newAddressId and no default, selecting first address:", userAddresses[0]);
+                        addressToSelect = userAddresses[0];
+                    }
+                }
+
+                const currentSelectedId = selectedAddress?.id; // selectedAddress.id est maintenant un number
+                const newSelectedId = addressToSelect?.id;
+
+                if (addressToSelect && newSelectedId !== currentSelectedId) {
+                    console.log("[Address Effect Debug] Updating selectedAddress to:", addressToSelect);
+                    setSelectedAddress(addressToSelect);
+                    setSelectedAddressId(newSelectedId || null);
+                } else if (!addressToSelect && selectedAddressId !== null) {
+                    console.log("[Address Effect Debug] No address to select, clearing selectedAddress.");
+                    setSelectedAddress(null);
+                    setSelectedAddressId(null);
+                } else {
+                    console.log("[Address Effect Debug] selectedAddress is already correctly set or no address to select.");
+                }
+            }
+        }
+
+        return () => {
+            if (addressLoadingTimeoutId) {
+                clearTimeout(addressLoadingTimeoutId);
+                setAddressLoadingTimeoutId(null);
+            }
+        };
+    }, [
+        loadingAddresses,
+        userAddresses,
+        addressLoadingTimeoutId,
+        searchParams,
+        currentUser,
+        url,
+        router,
+        fetchUserAddresses,
+        selectedAddress,
+        selectedAddressId,
+        pathname
+    ]);
+
+    // Initialisation de Kkiapay API
     useEffect(() => {
         if (kkiapayApiCheckIntervalRef.current) {
             clearInterval(kkiapayApiCheckIntervalRef.current);
@@ -189,35 +274,40 @@ const OrderSummary = () => {
         };
     }, []);
 
-    const handleAddressSelect = async (address: Address) => {
+    // Gère la sélection d'une adresse par l'utilisateur
+    const handleAddressSelect = useCallback(async (address: Address) => {
+        console.log("[handleAddressSelect] User selected address:", address);
         setSelectedAddress(address);
+        setSelectedAddressId(address.id || null); // L'ID est un nombre
+
         setIsDropdownOpen(false);
 
-        // L'ID de l'adresse peut être 'id' ou '_id'. Normalisez-le pour l'appel API.
-        const addressId = address.id || address._id;
+        const addressId = address.id;
 
-        if (currentUser && currentUser.id && addressId) {
+        if (currentUser && currentUser.id && addressId !== undefined && addressId !== null) {
             try {
                 const headers = { 'Content-Type': 'application/json' };
-
+                console.log(`[handleAddressSelect] Attempting to set address ${addressId} as default.`);
                 const response = await axios.put(
                     `${url}/api/addresses/${currentUser.id}`,
                     {
-                        id: addressId, // Utilisez l'ID normalisé ici
+                        id: addressId,
+                        isDefault: true,
                         fullName: address.fullName,
                         phoneNumber: address.phoneNumber,
                         pincode: address.pincode,
                         area: address.area,
                         city: address.city,
                         state: address.state,
-                        isDefault: true // On met à jour pour la rendre par défaut
+                        street: address.street,
+                        country: address.country,
                     },
                     { headers }
                 );
 
                 if (response.status === 200 && response.data.success) {
-                    toast.success("Adresse par défaut définie avec succès !");
-                    fetchUserAddresses(); // Re-fetch pour mettre à jour le contexte avec la nouvelle adresse par défaut
+                    toast.success("Nouvelle adresse définie par défaut !");
+                    fetchUserAddresses();
                 } else {
                     toast.error(`Échec de la définition de l'adresse par défaut: ${response.data.message || 'Erreur inconnue.'}`);
                 }
@@ -226,8 +316,9 @@ const OrderSummary = () => {
                 toast.error(`Erreur réseau lors de la définition de l'adresse par défaut.`);
             }
         }
-    };
+    }, [currentUser, url, fetchUserAddresses]);
 
+    // Fonction pour créer la commande et initier le paiement Kkiapay
     const createOrder = async () => {
         console.log("--- Début de la fonction createOrder ---");
 
@@ -237,8 +328,8 @@ const OrderSummary = () => {
             return;
         }
 
-        if (!currentUser || !currentUser.id) {
-            console.log("[Create Order] ERREUR: Utilisateur non connecté ou ID manquant.");
+        if (!currentUser || !currentUser.id || !currentUser.email || !currentUser.token) {
+            console.log("[Create Order] ERREUR: Utilisateur non connecté ou informations manquantes.");
             toast.error("Veuillez vous connecter pour passer commande.");
             router.push('/login');
             return;
@@ -259,83 +350,75 @@ const OrderSummary = () => {
         if (!KKIAPAY_PUBLIC_API_KEY) {
             console.log("[Create Order] ERREUR: KKIAPAY_PUBLIC_API_KEY est indéfini.");
             toast.error("La clé d'API publique Kkiapay n'est pas configurée. Veuillez contacter le support.");
-            setIsLoading(false); // S'assurer de désactiver le chargement si cette erreur se produit
+            setIsLoading(false);
             return;
         }
 
         setIsLoading(true);
-        toast.info("Préparation du paiement Kkiapay...");
+        toast.info("Préparation de la commande et du paiement Kkiapay...");
 
         try {
-            const prepareResponse = await axios.get<{ success: boolean; transactionId: string; message?: string }>(`${url}/api/order/prepare-payment`);
+            // Étape 1: Générer un ID de transaction unique (UUID) pour la commande
+            const newTransactionId = uuidv4();
+            setTransactionIdForKkiapay(newTransactionId);
+            console.log(`[Create Order] Generated new transaction ID for order: ${newTransactionId}`);
 
-            if (prepareResponse.status === 200 && prepareResponse.data.success && prepareResponse.data.transactionId) {
-                const newTransactionId = prepareResponse.data.transactionId;
-                setTransactionIdForKkiapay(newTransactionId);
-
-                const orderItems: OrderItem[] = Object.entries(cartItems).map(([productId, quantity]) => {
-                    const numericQuantity = quantity as number;
-                    // Assurez-vous que products est bien de type Product[] ici
-                    const product = products.find((p: Product) => String(p.id) === String(productId));
-                    if (!product) {
-                        console.warn(`[Create Order] Produit avec ID ${productId} non trouvé dans la liste des produits.`);
-                        return null;
-                    }
-                    return {
-                        productId: productId,
-                        quantity: numericQuantity,
-                        price: product.offerPrice !== null && product.offerPrice !== undefined ? product.offerPrice : product.price,
-                        name: product.name,
-                        imgUrl: product.imgUrl && product.imgUrl.length > 0 ? product.imgUrl[0] : ''
-                    };
-                }).filter((item): item is OrderItem => item !== null);
-
-                if (orderItems.length === 0) {
-                    console.log("[Create Order] ERREUR: Le panier ne contient pas d'articles valides pour la commande après filtrage.");
-                    toast.error("Le panier ne contient pas d'articles valides pour la commande.");
-                    setIsLoading(false);
-                    return;
+            // Étape 2: Construire le payload de la commande pour notre API /api/order/create
+            // Utilisation de OrderItemForCreatePayload pour la construction
+            const orderItemsForPayload: OrderItemForCreatePayload[] = Object.entries(cartItems).map(([productId, quantity]) => {
+                const numericQuantity = quantity as number;
+                const product = products.find((p: Product) => String(p.id) === String(productId));
+                if (!product) {
+                    console.warn(`[Create Order] Produit avec ID ${productId} non trouvé dans la liste des produits.`);
+                    return null; // Retourne null pour le filtrage
                 }
-
-                const now = new Date();
-                const fullOrderPayload: Order = {
-                    id: newTransactionId, // L'ID de la commande peut être le transactionId pour Kkiapay
-                    userId: currentUser.id,
-                    orderItems: orderItems,
-                    totalAmount: totalAmountToPay,
-                    shippingAddressLine1: selectedAddress.street || selectedAddress.area || '', // Assurez-vous qu'ils ne sont pas undefined
-                    shippingAddressLine2: null,
-                    shippingCity: selectedAddress.city || '',
-                    shippingState: selectedAddress.state || '',
-                    shippingZipCode: selectedAddress.pincode || null,
-                    shippingCountry: selectedAddress.country || 'Bénin',
-                    userEmail: currentUser.email || '',
-                    userPhoneNumber: selectedAddress.phoneNumber || '',
-                    currency: currency,
-                    kakapayTransactionId: newTransactionId,
-                    status: OrderStatus.PENDING, // Utilisez l'enum de '@/lib/types'
-                    paymentStatus: PaymentStatus.PENDING, // Utilisez l'enum de '@/lib/types'
-                    orderDate: now.toISOString(), // Convertir en string ISO pour la cohérence si votre backend attend une string
-                    createdAt: now.toISOString(),
-                    updatedAt: now.toISOString(),
-                    // CORRECTION ICI: shippingAddressId doit être une string ou null
-                    shippingAddressId: selectedAddress.id || selectedAddress._id || null, // Utilisez l'ID de l'adresse comme string
-                    shippingAddress: selectedAddress, // Vous pouvez inclure l'objet entier si votre backend le gère
+                return {
+                    productId: productId,
+                    quantity: numericQuantity,
+                    price: product.offerPrice ?? product.price, // Utilise offerPrice si disponible, sinon price
                 };
-                setPreparedOrderPayload(fullOrderPayload);
+            }).filter((item): item is OrderItemForCreatePayload => item !== null); // Filtrage correct
 
-                toast.success("Commande préparée ! Tentative d'ouverture du paiement Kkiapay...");
-                setShowKkiapayWidget(true);
-                console.log("[Create Order] showKkiapayWidget mis à true, déclenchement de l'ouverture du widget.");
-
-            } else {
-                console.error("[Create Order] L'API prepare-payment a échoué ou n'a pas renvoyé de transactionId.", prepareResponse.data);
-                toast.error(`Erreur lors de la préparation de la commande: ${prepareResponse.data.message || 'Erreur inconnue.'}`);
+            if (orderItemsForPayload.length === 0) {
+                console.log("[Create Order] ERREUR: Le panier ne contient pas d'articles valides pour la commande après filtrage.");
+                toast.error("Le panier ne contient pas d'articles valides pour la commande.");
+                setIsLoading(false);
+                return;
             }
+
+            const createOrderPayload: CreateOrderPayload = {
+                id: newTransactionId, // L'ID de commande sera l'ID de transaction Kkiapay
+                items: orderItemsForPayload, // Le type est maintenant correct
+                totalAmount: totalAmountToPay,
+                shippingAddress: selectedAddress,
+                paymentMethod: "Kkiapay", // Méthode de paiement initiale
+                userEmail: currentUser.email,
+                userPhoneNumber: selectedAddress.phoneNumber || currentUser.phoneNumber || null, // CORRECTION: Utilise || null
+                currency: currency,
+            };
+
+            // Étape 3: Créer la commande dans notre base de données avec statut PENDING
+            const createOrderResponse = await axios.post<{ success: boolean; orderId: string; message?: string }>(
+                `${url}/api/order/create`,
+                createOrderPayload,
+                { headers: { 'Content-Type': 'application/json', 'auth-token': currentUser.token } }
+            );
+
+            if (createOrderResponse.status !== 201 || !createOrderResponse.data.success || !createOrderResponse.data.orderId) {
+                console.error("[Create Order] L'API /api/order/create a échoué.", createOrderResponse.data);
+                toast.error(`Erreur lors de la création de la commande: ${createOrderResponse.data.message || 'Erreur inconnue.'}`);
+                setIsLoading(false);
+                return;
+            }
+            console.log(`[Create Order] Commande ${createOrderResponse.data.orderId} créée en DB avec statut PENDING.`);
+
+            toast.success("Commande enregistrée ! Ouverture du paiement Kkiapay...");
+            setShowKkiapayWidget(true); // Déclenche l'ouverture du widget Kkiapay via useEffect
+
         } catch (error) {
-            console.error("[Create Order] Erreur lors de la préparation de la commande Kkiapay (bloc catch):", error);
+            console.error("[Create Order] Erreur lors de la création de la commande:", error);
             if (axios.isAxiosError(error) && error.response) {
-                toast.error(`Erreur serveur: ${error.response.data.message || 'Impossible de préparer la commande.'}`);
+                toast.error(`Erreur serveur: ${error.response.data.message || 'Impossible de créer la commande.'}`);
             } else {
                 toast.error("Erreur inattendue lors de la commande.");
             }
@@ -345,48 +428,45 @@ const OrderSummary = () => {
         }
     };
 
+    // --- EFFECT POUR OUVRIR LE WIDGET KKIAPAY ET GÉRER LES LISTENERS ---
     useEffect(() => {
-        console.log("[Kkiapay Widget useEffect] showKkiapayWidget changed:", showKkiapayWidget, "transactionIdForKkiapay:", transactionIdForKkiapay, "preparedOrderPayload:", preparedOrderPayload); // NOUVEAU LOG
+        console.log("[Kkiapay Widget useEffect] showKkiapayWidget changed:", showKkiapayWidget, "transactionIdForKkiapay:", transactionIdForKkiapay);
 
         if (kkiapayOpenRetryTimeoutRef.current) {
             clearTimeout(kkiapayOpenRetryTimeoutRef.current);
             kkiapayOpenRetryTimeoutRef.current = null;
         }
 
-        if (showKkiapayWidget && transactionIdForKkiapay && preparedOrderPayload) {
-            console.log("[Kkiapay Widget] Conditions showKkiapayWidget, transactionIdForKkiapay et preparedOrderPayload remplies. Déclenchement de la logique d'ouverture...");
+        // Le widget Kkiapay ne s'ouvre que si showKkiapayWidget est vrai ET que l'ID de transaction est présent
+        if (showKkiapayWidget && transactionIdForKkiapay) {
+            console.log("[Kkiapay Widget] Conditions showKkiapayWidget et transactionIdForKkiapay remplies. Déclenchement de la logique d'ouverture...");
 
             let retryCount = 0;
             const maxRetries = 60;
             const retryDelay = 100;
 
             const tryOpenKkiapayWidget = () => {
-                // Vérifiez toujours si openKkiapayWidget est défini avant de l'appeler
                 if (typeof window.openKkiapayWidget === 'function') {
                     console.log("[Kkiapay Widget] openKkiapayWidget() est ENFIN disponible. Ouverture du widget !");
                     window.openKkiapayWidget({
                         amount: totalAmountToPay,
                         api_key: KKIAPAY_PUBLIC_API_KEY as string,
-                        callback: `${window.location.origin}/api/kkiapay-callback?transactionId=${transactionIdForKkiapay}`,
-                        transaction_id: transactionIdForKkiapay,
-                        email: currentUser?.email || '',
-                        phone: selectedAddress?.phoneNumber || '',
+                        callback: `${window.location.origin}/api/kkiapay-callback?transactionId=${transactionIdForKkiapay}`, // Passer notre orderId/transactionId
+                        transaction_id: transactionIdForKkiapay, // Kkiapay peut aussi l'utiliser
+                        email: currentUser?.email ?? '',
+                        phone: selectedAddress?.phoneNumber ?? '',
                         position: "center",
                         sandbox: process.env.NODE_ENV === 'development',
-                        data: JSON.stringify(preparedOrderPayload)
+                        // Ne pas passer le payload complet à Kkiapay.data
+                        // data: JSON.stringify(preparedOrderPayload) // REMOVED
                     });
 
-                    // Assurez-vous que les listeners sont ajoutés une seule fois ou retirés après usage
-                    // Pour éviter les multiples écouteurs lors des re-renderings, on peut utiliser removeSuccessListener/removeFailedListener
-                    // ou s'assurer que cet useEffect ne s'exécute que lorsque showKkiapayWidget passe à true pour la première fois.
-                    // Pour cet exemple, je vais juste vérifier leur existence avant d'ajouter.
                     if (typeof window.addSuccessListener === 'function') {
-                        // Il est bon de stocker la référence du listener pour pouvoir le supprimer dans le cleanup
                         const successListener = (response: KkiapaySuccessResponse) => {
                             console.log("[Kkiapay Widget] Paiement Kkiapay succès via addSuccessListener:", response);
                             setShowKkiapayWidget(false);
-                            router.push(`/order-status?orderId=${response.transactionId || transactionIdForKkiapay}&status=success`);
-                            // Optionnel: Supprimer le listener après qu'il a été déclenché
+                            // Rediriger vers la page de statut de la commande avec l'ID de notre commande
+                            router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=success`);
                             window.removeSuccessListener(successListener);
                         };
                         window.addSuccessListener(successListener);
@@ -399,8 +479,8 @@ const OrderSummary = () => {
                             const errorMessage = error.reason?.message || error.message || "Le paiement a échoué ou a été annulé.";
                             console.warn("[Kkiapay Widget] Paiement Kkiapay échec via addFailedListener:", error);
                             setShowKkiapayWidget(false);
+                            // Rediriger vers la page de statut de la commande avec l'ID de notre commande
                             router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=failed&message=${encodeURIComponent(errorMessage)}`);
-                            // Optionnel: Supprimer le listener après qu'il a été déclenché
                             window.removeFailedListener(failedListener);
                         };
                         window.addFailedListener(failedListener);
@@ -425,8 +505,7 @@ const OrderSummary = () => {
 
         } else if (showKkiapayWidget && !transactionIdForKkiapay) {
             console.log("[Kkiapay Widget] Le widget Kkiapay ne peut pas s'ouvrir : ID de transaction manquant (log dans showKkiapayWidget useEffect).", { showKkiapayWidget, transactionIdForKkiapay });
-        } else if (showKkiapayWidget && !preparedOrderPayload) {
-            console.log("[Kkiapay Widget] Le widget Kkiapay ne peut pas s'ouvrir : Payload de commande non préparé.", { showKkiapayWidget, preparedOrderPayload });
+            setShowKkiapayWidget(false);
         }
 
         return () => {
@@ -434,26 +513,25 @@ const OrderSummary = () => {
                 clearTimeout(kkiapayOpenRetryTimeoutRef.current);
                 kkiapayOpenRetryTimeoutRef.current = null;
             }
-            // Considérez si vous devez supprimer les listeners Kkiapay ici
-            // Cela dépend de la persistance de l'instance du widget Kkiapay et de vos besoins.
-            // Si le widget est un singleton global et que les listeners s'accumulent, il faut les retirer.
         };
-    }, [showKkiapayWidget, transactionIdForKkiapay, preparedOrderPayload, totalAmountToPay, currentUser, selectedAddress, KKIAPAY_PUBLIC_API_KEY, currency, router]);
+    }, [showKkiapayWidget, transactionIdForKkiapay, totalAmountToPay, currentUser, selectedAddress, KKIAPAY_PUBLIC_API_KEY, currency, router]);
 
 
-    const isButtonDisabled = getCartCount() === 0 || isLoading || !isKkiapayWidgetApiReady || !KKIAPAY_PUBLIC_API_KEY || !selectedAddress; // Désactiver si aucune adresse
+    const isButtonDisabled = getCartCount() === 0 || isLoading || !isKkiapayWidgetApiReady || !KKIAPAY_PUBLIC_API_KEY || !selectedAddress;
 
-    console.log("--- État du composant OrderSummary ---");
+    console.log("--- État du composant OrderSummary (Rendu) ---");
     console.log("Panier vide (getCartCount() === 0):", getCartCount() === 0);
-    console.log("En chargement (isLoading):", isLoading);
+    console.log("En chargement (isLoading - bouton):", isLoading);
     console.log("API Kkiapay prête (isKkiapayWidgetApiReady - CLÉ pour activer le bouton):", isKkiapayWidgetApiReady);
     console.log("Clé publique Kkiapay définie (KKIAPAY_PUBLIC_API_KEY):", KKIAPAY_PUBLIC_API_KEY ? "Defined" : "Undefined");
-    console.log("Adresse sélectionnée (selectedAddress):", selectedAddress ? "Defined" : "Undefined", selectedAddress); // Ajouté pour le débogage
+    console.log("Adresse sélectionnée (selectedAddress):", selectedAddress ? "Defined" : "Undefined", selectedAddress);
+    console.log("ID d'adresse sélectionnée (selectedAddressId):", selectedAddressId);
     console.log("Bouton désactivé (isButtonDisabled - calculé):", isButtonDisabled);
     console.log("Transaction ID for Kkiapay (état local):", transactionIdForKkiapay);
-    console.log("Prepared Order Payload (état local):", preparedOrderPayload);
     console.log("Current user:", currentUser);
-    console.log("User Addresses (from context):", userAddresses); // Ajouté pour le débogage
+    console.log("User Addresses (from context):", userAddresses);
+    console.log("Loading Addresses (from context):", loadingAddresses);
+    console.log("Display Prompt For Address (état local):", displayPromptForAddress);
     console.log("Cart Items:", cartItems);
     console.log("Products (sample):", products.length > 0 ? products.slice(0, 2) : "No products loaded");
     console.log("-----------------------------------");
@@ -466,7 +544,7 @@ const OrderSummary = () => {
 
             <div>
                 <label className="block text-gray-600 font-medium mb-2">
-                    Sélectionnez une adresse
+                    Sélectionner une Adresse
                 </label>
                 <div className="relative">
                     <button
@@ -477,9 +555,11 @@ const OrderSummary = () => {
                         <span>
                             {loadingAddresses
                                 ? "Chargement des adresses..."
-                                : selectedAddress
-                                    ? `${selectedAddress.fullName}, ${selectedAddress.area}, ${selectedAddress.city} ${selectedAddress.isDefault ? '(Par défaut)' : ''}` // Ajout de l'indicateur par défaut
-                                    : "Veuillez sélectionner une adresse"}
+                                : userAddresses.length === 0
+                                    ? "Aucune adresse trouvée. Cliquez pour en ajouter une."
+                                    : selectedAddress
+                                        ? `${selectedAddress.fullName}, ${selectedAddress.area}, ${selectedAddress.city}`
+                                        : "Veuillez sélectionner une adresse"}
                         </span>
                         <svg
                             className={`w-5 h-5 ml-2 inline transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
@@ -497,8 +577,8 @@ const OrderSummary = () => {
                             {userAddresses.length > 0 ? (
                                 userAddresses.map((address: Address) => (
                                     <li
-                                        key={address.id || address._id}
-                                        className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center" // Ajout de flex pour l'alignement
+                                        key={address.id} // Clé basée sur l'ID numérique
+                                        className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex justify-between items-center"
                                         onClick={() => handleAddressSelect(address)}
                                     >
                                         <span>
@@ -530,7 +610,7 @@ const OrderSummary = () => {
                     <span>{formatPrice(getCartAmount())}</span>
                 </div>
 
-                <div className="flex justify-between text-gray-700 font-semibold border-t pt-4">
+                <div className="flex justify-between font-semibold border-t pt-4">
                     <span>Total à payer</span>
                     <span>{formatPrice(totalAmountToPay)}</span>
                 </div>
@@ -547,7 +627,7 @@ const OrderSummary = () => {
                         Préparation du paiement...
                     </>
                 ) : (
-                    "Procéder au Paiement avec Kkiapay"
+                    "Procéder au paiement avec Kkiapay"
                 )}
             </button>
         </div>

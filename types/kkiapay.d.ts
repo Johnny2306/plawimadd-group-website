@@ -1,5 +1,6 @@
-// types/kkiapay.d.ts - Assurez-vous que le vôtre ressemble EXACTEMENT à ça
-interface KkiapayOptions {
+// types/kkiapay.d.ts
+
+export interface KkiapayOptions {
     amount: number;
     api_key: string;
     callback: string;
@@ -7,14 +8,15 @@ interface KkiapayOptions {
     email?: string;
     phone?: string;
     position?: "center" | "right" | "left";
-    sandbox?: boolean; // Le boolean est plus précis pour true/false
+    sandbox?: boolean;
     data?: string;
-    theme?: string; // Ajouté si le widget kkiapay-widget a cette prop
-    paymentmethod?: "momo" | "card"; // Ajouté si le widget kkiapay-widget a cette prop
-    name?: string; // Ajouté si le widget kkiapay-widget a cette prop
+    theme?: string;
+    paymentmethod?: "momo" | "card";
+    name?: string;
+    currency?: string;
 }
 
-interface KkiapaySuccessResponse {
+export interface KkiapaySuccessResponse {
     transactionId: string;
     data?: string;
     amount?: number;
@@ -25,12 +27,12 @@ interface KkiapaySuccessResponse {
     phone?: string;
 }
 
-interface KkiapayErrorReason {
+export interface KkiapayErrorReason {
     code?: string;
     message?: string;
 }
 
-interface KkiapayErrorResponse {
+export interface KkiapayErrorResponse {
     transactionId?: string;
     reason?: KkiapayErrorReason;
     message?: string;
@@ -38,17 +40,17 @@ interface KkiapayErrorResponse {
 
 declare global {
     interface Window {
-        openKkiapayWidget: (options: KkiapayOptions) => void;
-        addSuccessListener: (callback: (response: KkiapaySuccessResponse) => void) => void;
-        addFailedListener: (callback: (error: KkiapayErrorResponse) => void) => void;
-        // *** ASSUREZ-VOUS QUE CES DEUX LIGNES SONT PRÉSENTES DANS VOTRE types/kkiapay.d.ts ***
-        removeSuccessListener: (callback: (response: KkiapaySuccessResponse) => void) => void;
-        removeFailedListener: (callback: (error: KkiapayErrorResponse) => void) => void;
+        Kkiapay?: { // Seule la nouvelle API Kkiapay est déclarée ici
+            open: (options: KkiapayOptions) => void;
+            on_success: (callback: (response: KkiapaySuccessResponse) => void) => void;
+            on_error: (callback: (error: KkiapayErrorResponse) => void) => void;
+            on_close: (callback: () => void) => void;
+        };
     }
 
     namespace JSX {
         interface IntrinsicElements {
-            'kkiapay-widget': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & KkiapayOptions; // Réutilise KkiapayOptions pour les props du widget
+            'kkiapay-widget': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & KkiapayOptions;
         }
     }
 }

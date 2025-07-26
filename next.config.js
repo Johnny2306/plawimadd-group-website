@@ -2,21 +2,18 @@
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    // La configuration 'domains' est dépréciée.
-    // Veuillez utiliser 'remotePatterns' à la place, comme vous l'avez déjà fait ci-dessous.
-    // domains: ['localhost'], // <-- Cette ligne est dépréciée et peut être supprimée
-
+    // Supprimez toute configuration 'domains' ou 'remotePatterns' qui pointe vers 'localhost'
+    // car vos images ne sont plus servies localement.
     remotePatterns: [
       {
-        protocol: 'http', // or 'https'
-        hostname: 'localhost',
-        port: '8000', // Adjust to your backend port
-        pathname: '/uploads/**', // Ensure this matches your path
+        protocol: 'https', // Cloudinary utilise toujours HTTPS
+        hostname: 'res.cloudinary.com',
+        port: '',
+        // TRÈS IMPORTANT : Utilisation de votre Cloud Name fourni
+        pathname: '/doh6hve6o/**', // REMPLACÉ PAR VOTRE CLOUD NAME
       },
-      // Add other remote image sources if needed
     ],
   },
-  // Other Next.js configurations...
 };
 
 module.exports = nextConfig;

@@ -21,50 +21,49 @@ enum UserRole {
 
 // Modèle pour les utilisateurs
 model User {
-  id                    String    @id @unique @default(uuid()) @db.VarChar(255) // Clé primaire UUID, unique
-  email                 String    @unique @db.VarChar(255) // Email de l'utilisateur (doit être unique)
-  password              String    @db.VarChar(255) // Mot de passe haché
-  firstName             String?   @db.VarChar(255) @map("firstName") // Prénom (optionnel)
-  lastName              String?   @db.VarChar(255) @map("lastName")  // Nom de famille (optionnel)
-  role                  UserRole? @default(USER) // Rôle de l'utilisateur (utilisation de l'enum UserRole)
-  // CORRECTION ICI: Ajout de @unique à resetPasswordToken pour une meilleure sécurité
-  resetPasswordToken    String?   @unique @db.VarChar(255) @map("resetPasswordToken") // Jeton de réinitialisation de mot de passe (optionnel)
-  resetPasswordExpires  DateTime? @db.DateTime(0) @map("resetPasswordExpires") // Date d'expiration du jeton (optionnel)
-  createdAt             DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt             DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
-  phoneNumber           String?   @db.VarChar(15) @map("phoneNumber") // Numéro de téléphone (optionnel)
+  id                  String    @id @unique @default(uuid()) @db.VarChar(255) // Clé primaire UUID, unique
+  email               String    @unique @db.VarChar(255) // Email de l'utilisateur (doit être unique)
+  password            String    @db.VarChar(255) // Mot de passe haché
+  firstName           String?   @db.VarChar(255) @map("firstName") // Prénom (optionnel)
+  lastName            String?   @db.VarChar(255) @map("lastName")  // Nom de famille (optionnel)
+  role                UserRole? @default(USER) // Rôle de l'utilisateur (utilisation de l'enum UserRole)
+  resetPasswordToken  String?   @unique @db.VarChar(255) @map("resetPasswordToken") // Jeton de réinitialisation de mot de passe (optionnel)
+  resetPasswordExpires DateTime? @db.DateTime(0) @map("resetPasswordExpires") // Date d'expiration du jeton (optionnel)
+  createdAt           DateTime  @default(now()) // Date de création de l'enregistrement
+  updatedAt           DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
+  phoneNumber         String?   @db.VarChar(15) @map("phoneNumber") // Numéro de téléphone (optionnel)
 
   // Relations avec les autres modèles
-  addresses             Address[]  // Adresses de l'utilisateur
-  cartItems             CartItem[] // Articles dans le panier de l'utilisateur
-  orders                Order[]    // Commandes passées par l'utilisateur
-  reviews               Review[]   // Avis laissés par l'utilisateur
+  addresses           Address[]  // Adresses de l'utilisateur
+  cartItems           CartItem[] // Articles dans le panier de l'utilisateur
+  orders              Order[]    // Commandes passées par l'utilisateur
+  reviews             Review[]   // Avis laissés par l'utilisateur
 
   @@map("users") // Nom de la table dans la base de données
 }
 
 // Modèle pour les adresses des utilisateurs
 model Address {
-  id            Int       @id @default(autoincrement()) // Clé primaire auto-incrémentée
-  userId        String    @db.VarChar(255) // ID de l'utilisateur auquel l'adresse est liée
-  fullName      String    @db.VarChar(255) // Nom complet du destinataire
-  phoneNumber   String    @db.VarChar(20)  // Numéro de téléphone du destinataire
-  pincode       String?   @db.VarChar(10)  // Code postal (optionnel)
-  area          String    @db.Text           // Zone ou quartier
-  city          String    @db.VarChar(100) // Ville
-  state         String    @db.VarChar(100) // État/Région
-  isDefault     Boolean   @default(false) @map("isDefault") // Indique si c'est l'adresse par défaut
-  createdAt     DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt     DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
+  id          Int       @id @default(autoincrement()) // Clé primaire auto-incrémentée
+  userId      String    @db.VarChar(255) // ID de l'utilisateur auquel l'adresse est liée
+  fullName    String    @db.VarChar(255) // Nom complet du destinataire
+  phoneNumber String    @db.VarChar(20)  // Numéro de téléphone du destinataire
+  pincode     String?   @db.VarChar(10)  // Code postal (optionnel)
+  area        String    @db.Text           // Zone ou quartier
+  city        String    @db.VarChar(100) // Ville
+  state       String    @db.VarChar(100) // État/Région
+  isDefault   Boolean   @default(false) @map("isDefault") // Indique si c'est l'adresse par défaut
+  createdAt   DateTime  @default(now()) // Date de création de l'enregistrement
+  updatedAt   DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // NOUVEAUX CHAMPS AJOUTÉS :
-  street        String?   @db.VarChar(255) // Rue (optionnel)
-  country       String    @db.VarChar(100) // Pays (obligatoire, ajustez si besoin d'être optionnel)
+  street      String?   @db.VarChar(255) // Rue (optionnel)
+  country     String    @db.VarChar(100) // Pays (obligatoire, ajustez si besoin d'être optionnel)
 
   // Relation avec le modèle User
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   // Relation avec le modèle Order (une adresse peut être associée à plusieurs commandes)
-  orders        Order[]
+  orders      Order[]
 
   @@map("addresses") // Nom de la table dans la base de données
 }
@@ -124,72 +123,72 @@ enum PaymentStatus {
 
 // Modèle pour les commandes
 model Order {
-  id                    String        @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
-  userId                String        @db.VarChar(255) // ID de l'utilisateur qui a passé la commande
-  totalAmount           Decimal       @db.Decimal(10, 2) // Montant total de la commande
-  kakapayTransactionId  String?       @db.VarChar(255) @map("kakapayTransactionId") // ID de transaction Kkiapay (optionnel)
-  status                OrderStatus?  @default(PENDING) // Statut de la commande (utilisation de l'enum OrderStatus)
-  paymentStatus         PaymentStatus? @default(PENDING) @map("paymentStatus") // Statut du paiement (utilisation de l'enum PaymentStatus)
+  id                  String       @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID (sera le kkiapayTransactionId)
+  userId              String       @db.VarChar(255) // ID de l'utilisateur qui a passé la commande
+  totalAmount         Decimal      @db.Decimal(10, 2) // Montant total de la commande
+  // REMOVED: kkiapayTransactionId String? @db.VarChar(255) @map("kkiapayTransactionId") // 'id' field serves this purpose
+  status              OrderStatus? @default(PENDING) // Statut de la commande (utilisation de l'enum OrderStatus)
+  paymentStatus       PaymentStatus? @default(PENDING) @map("paymentStatus") // Statut du paiement (utilisation de l'enum PaymentStatus)
 
   // Champs d'adresse de livraison directement sur la commande (pour un snapshot au moment de la commande)
-  shippingAddressLine1  String        @db.VarChar(255) @map("shippingAddressLine1")
-  shippingAddressLine2  String?       @db.VarChar(255) @map("shippingAddressLine2")
-  shippingCity          String        @db.VarChar(100) @map("shippingCity")
-  shippingState         String        @db.VarChar(100) @map("shippingState")
-  shippingZipCode       String?       @db.VarChar(20) @map("shippingZipCode") // Rendu optionnel
-  shippingCountry       String        @db.VarChar(100) @map("shippingCountry")
+  shippingAddressLine1 String       @db.VarChar(255) @map("shippingAddressLine1")
+  shippingAddressLine2 String?      @db.VarChar(255) @map("shippingAddressLine2")
+  shippingCity        String       @db.VarChar(100) @map("shippingCity")
+  shippingState       String       @db.VarChar(100) @map("shippingState")
+  shippingZipCode     String?      @db.VarChar(20) @map("shippingZipCode")
+  shippingCountry     String       @db.VarChar(100) @map("shippingCountry")
 
-  userEmail             String        @db.VarChar(255) // Email de l'utilisateur au moment de la commande
-  userPhoneNumber       String?       @db.VarChar(20) @map("userPhoneNumber") // Rendu nullable
-  currency              String        @db.VarChar(10)  // Devise de la commande
+  userEmail           String       @db.VarChar(255) // Email de l'utilisateur au moment de la commande
+  userPhoneNumber     String?      @db.VarChar(20) @map("userPhoneNumber")
+  currency            String       @db.VarChar(10)  // Devise de la commande
 
-  orderDate             DateTime      @default(now()) // Date de la commande
-  createdAt             DateTime      @default(now()) // Date de création de l'enregistrement
-  updatedAt             DateTime      @updatedAt           // Date de la dernière mise à jour de l'enregistrement
+  orderDate           DateTime     @default(now()) // Date de la commande
+  createdAt           DateTime     @default(now()) // Date de création de l'enregistrement
+  updatedAt           DateTime     @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
-  shippingAddressId     Int?          @map("shippingAddressId") // Clé étrangère vers l'adresse (optionnel)
+  shippingAddressId   Int?         @map("shippingAddressId") // Clé étrangère vers l'adresse (optionnel)
 
   // Relations
-  user                  User          @relation(fields: [userId], references: [id])
-  shippingAddress       Address?      @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  orderItems            OrderItem[]    // Articles spécifiques à cette commande
-  payment               Payment?      // Relation optionnelle vers un enregistrement de paiement
+  user                User         @relation(fields: [userId], references: [id])
+  shippingAddress     Address?     @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  orderItems          OrderItem[]  // Articles spécifiques à cette commande (relation)
+  payment             Payment?     // Relation optionnelle vers un enregistrement de paiement
 
   @@map("orders") // Nom de la table dans la base de données
 }
 
 // Modèle pour les articles individuels d'une commande
 model OrderItem {
-  id            String    @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
-  orderId       String    @db.VarChar(255) // ID de la commande à laquelle l'article appartient
-  productId     String    @db.VarChar(255) // ID du produit
-  quantity      Int       // Quantité du produit dans cette commande
-  priceAtOrder  Decimal   @db.Decimal(10, 2) @map("priceAtOrder") // Prix du produit au moment de la commande
-  createdAt     DateTime  @default(now()) // Date de création de l'enregistrement
-  updatedAt     DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
+  id          String    @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
+  orderId     String    @db.VarChar(255) // ID de la commande à laquelle l'article appartient
+  productId   String    @db.VarChar(255) // ID du produit
+  quantity    Int       // Quantité du produit
+  priceAtOrder Decimal   @db.Decimal(10, 2) @map("priceAtOrder") // Prix du produit au moment de la commande
+  createdAt   DateTime  @default(now()) // Date de création de l'enregistrement
+  updatedAt   DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // Relations
-  order         Order     @relation(fields: [orderId], references: [id])
-  product       Product   @relation(fields: [productId], references: [id])
+  order       Order     @relation(fields: [orderId], references: [id])
+  product     Product   @relation(fields: [productId], references: [id])
 
   @@map("order_items") // Nom de la table dans la base de données
 }
 
 // Modèle pour les paiements
 model Payment {
-  id            String        @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
-  orderId       String        @unique @db.VarChar(255) // ID de la commande liée (doit être unique)
-  paymentMethod String        @db.VarChar(100) @map("paymentMethod") // Méthode de paiement (ex: "Kkiapay", "Card")
-  transactionId String?       @unique @db.VarChar(255) @map("transactionId") // ID de transaction unique (optionnel)
-  amount        Decimal       @db.Decimal(10, 2) // Montant du paiement
-  currency      String        @db.VarChar(10)  // Devise du paiement
+  id            String       @id @default(uuid()) @db.VarChar(255) // Clé primaire UUID
+  orderId       String       @unique @db.VarChar(255) // ID de la commande liée (doit être unique)
+  paymentMethod String       @db.VarChar(100) @map("paymentMethod") // Méthode de paiement (ex: "Kkiapay", "Card")
+  transactionId String?      @unique @db.VarChar(255) @map("transactionId") // ID de transaction unique (optionnel)
+  amount        Decimal      @db.Decimal(10, 2) // Montant du paiement
+  currency      String       @db.VarChar(10)  // Devise du paiement
   status        PaymentStatus? @default(PENDING) // Statut du paiement (utilisation de l'enum PaymentStatus)
-  paymentDate   DateTime?     @map("paymentDate") // Date du paiement (optionnel)
-  createdAt     DateTime      @default(now()) // Date de création de l'enregistrement
-  updatedAt     DateTime      @updatedAt           // Date de la dernière mise à jour de l'enregistrement
+  paymentDate   DateTime?    @map("paymentDate") // Date du paiement (optionnel)
+  createdAt     DateTime     @default(now()) // Date de création de l'enregistrement
+  updatedAt     DateTime     @updatedAt           // Date de la dernière mise à jour de l'enregistrement
 
   // Relation avec le modèle Order
-  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  order         Order        @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@map("payments") // Nom de la table dans la base de données
 }
@@ -206,8 +205,8 @@ model Product {
   updatedAt   DateTime  @updatedAt           // Date de la dernière mise à jour de l'enregistrement
   offerPrice  Decimal?  @db.Decimal(10, 2) @map("offerPrice") // Prix promotionnel (optionnel)
   rating      Float?    @default(0.0) // Ajout du champ rating
-  brand       String?   @db.VarChar(255) // <-- AJOUTÉ
-  color       String?   @db.VarChar(255) // <-- AJOUTÉ
+  brand       String?   @db.VarChar(255)
+  color       String?   @db.VarChar(255)
 
   // --- CHANGEMENT ICI : REMPLACER LE CHAMP STRING PAR UNE RELATION ---
   categoryId  String    @db.VarChar(255) // Clé étrangère vers la catégorie

@@ -1,4 +1,4 @@
-// C:\xampp\htdocs\plawimadd_group\app\api\products\route.ts
+// app/api/products/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
@@ -79,57 +79,50 @@ function parseImgUrl(imgUrlString: string | null): string[] {
     let currentString = imgUrlString;
 
     // Tenter de parser la chaîne plusieurs fois pour gérer la double (ou triple) sérialisation
-    // Nous allons itérer quelques fois pour être sûr de "dérouler" toutes les couches d'encodage.
-    // Une chaîne comme ["[\"...\"]"] nécessite 2 parses pour arriver à ["..."].
-    for (let i = 0; i < 5; i++) { // Augmenté à 5 pour une robustesse maximale, même si 2-3 suffisent normalement
+    for (let i = 0; i < 5; i++) {
         try {
             const parsed = JSON.parse(currentString);
 
             if (Array.isArray(parsed)) {
-                // Si c'est un tableau, et que ses éléments sont des chaînes qui ressemblent à du JSON
-                // alors c'est une couche de plus à décoder.
+                // Si c'est un tableau, vérifiez si ses éléments sont des chaînes JSON encodées
                 if (parsed.length > 0 && typeof parsed[0] === 'string' && parsed[0].startsWith('[') && parsed[0].endsWith(']')) {
-                    currentString = parsed[0]; // Passer à l'élément pour le re-parser
+                    currentString = parsed[0]; // C'est un tableau stringifié à l'intérieur d'un tableau
                 } else if (parsed.length > 0 && typeof parsed[0] === 'string' && (parsed[0].startsWith('"') || parsed[0].startsWith('{'))) {
-                    // Cas où le premier élément est une chaîne qui est elle-même un JSON (e.g., "[\"url\"]")
-                    // On tente de la parser, mais seulement si elle est entre guillemets pour éviter de parser une URL simple.
+                    // C'est un tableau de chaînes qui sont elles-mêmes stringifiées ou des objets JSON
                     try {
                         const reParsed = JSON.parse(parsed[0]);
                         if (Array.isArray(reParsed) && typeof reParsed[0] === 'string') {
-                            return reParsed; // Found the final array of strings
+                            return reParsed; // C'est le tableau final d'URLs
                         } else if (typeof reParsed === 'string') {
-                            return [reParsed]; // Found a single string URL
+                            return [reParsed]; // C'est une seule URL stringifiée
                         }
                     } catch {
-                        // If re-parsing fails, it was just a string that happened to start with "{" or "[",
-                        // so treat the original array as the final one.
+                        // Si le re-parsing échoue, c'est probablement un tableau de chaînes déjà propres
                         return parsed.filter((item): item is string => typeof item === 'string');
                     }
                 }
                 else {
-                    // Sinon, c'est un tableau de chaînes d'URL propres (ou d'autres types, que nous filtrerons).
+                    // C'est un tableau de chaînes déjà propres
                     return parsed.filter((item): item is string => typeof item === 'string');
                 }
             } else if (typeof parsed === 'string') {
-                // Si le JSON parsé est une simple chaîne, on la considère comme la "prochaine" chaîne à parser.
-                currentString = parsed;
+                currentString = parsed; // C'est une chaîne stringifiée, continuer le parsing
             } else {
-                // Si ce n'est ni un tableau, ni une chaîne (ex: null, number, boolean), retourner vide.
+                // Ce n'est ni un tableau, ni une chaîne stringifiée, ni une chaîne simple.
                 return [];
             }
         } catch (e) {
-            // Si JSON.parse échoue, cela signifie que currentString n'est pas un JSON valide.
-            // C'est probablement une URL simple ou la couche la plus interne.
+            // Si JSON.parse échoue, c'est probablement une chaîne simple non JSON
             if (typeof currentString === 'string') {
-                return [currentString];
+                return [currentString]; // Retourne la chaîne simple dans un tableau
             } else {
-                return []; // Fallback si ce n'est même pas une chaîne
+                return [];
             }
         }
     }
 
-    // Fallback si la boucle s'est terminée sans trouver un tableau d'URLs propres
-    // Cela ne devrait normalement pas arriver avec une boucle de 5 itérations si le format est JSON.
+    // Après plusieurs tentatives, si c'est encore une chaîne, la retourner dans un tableau.
+    // Sinon, retourner un tableau vide.
     return (typeof currentString === 'string' ? [currentString] : []);
 }
 
@@ -156,14 +149,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 ? new Decimal(offerPrice)
                 : null;
 
-        // ***** CORRECTION CLÉ ICI : Nettoyer l'entrée imgUrl avant de la stocker *****
-        // On utilise parseImgUrl pour s'assurer que l'entrée est propre (tableau de chaînes pures)
-        // avant de la sérialiser pour la base de données.
-        // Si `imgUrl` est déjà un tableau, on le stringifie pour le passer à parseImgUrl
+        // Appelez parseImgUrl pour obtenir le tableau propre,
+        // puis stringifiez-le UNE SEULE FOIS pour la base de données.
         const cleanedImgUrlArray = parseImgUrl(Array.isArray(imgUrl) ? JSON.stringify(imgUrl) : String(imgUrl));
-
-        // Maintenant, on stringifie UN SEUL FOIS un tableau de chaînes d'URL propres.
-        const imgUrlString = JSON.stringify(cleanedImgUrlArray);
+        const imgUrlToSave = JSON.stringify(cleanedImgUrlArray); // Stringifier une seule fois
 
 
         // --- GESTION DE LA CATÉGORIE ---
@@ -192,16 +181,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 price: new Decimal(price),
                 offerPrice: finalOfferPrice,
                 stock: stock,
-                imgUrl: imgUrlString, // Stocke une chaîne JSON propre (e.g., "[\"/path/to/img.jpg\"]")
-                brand: brand || null, // Ajouté
-                color: color || null, // Ajouté
+                imgUrl: imgUrlToSave, // Utilise la chaîne JSON propre
+                brand: brand || null,
+                color: color || null,
             },
             include: {
                 category: true,
             },
         });
 
-        // Utilisez la fonction d'aide pour parser newProduct.imgUrl avant de l'assigner
         const parsedImgUrls = parseImgUrl(newProduct.imgUrl);
 
         const responseNewProduct: ApiResponseProduct = {
@@ -213,14 +201,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             stock: newProduct.stock,
             createdAt: newProduct.createdAt,
             updatedAt: newProduct.updatedAt,
-            imgUrl: parsedImgUrls, // Assignez le tableau parsé ici
+            imgUrl: parsedImgUrls,
             category: {
                 id: newProduct.category.id,
                 name: newProduct.category.name,
             },
-            rating: newProduct.rating, // Assurez-vous que le rating est inclus
-            brand: newProduct.brand, // Ajouté
-            color: newProduct.color, // Ajouté
+            rating: newProduct.rating,
+            brand: newProduct.brand,
+            color: newProduct.color,
         };
 
         return NextResponse.json(
@@ -228,14 +216,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             { status: 201 }
         );
 
-    } catch (_error: unknown) {
-        console.error('Erreur lors de l\'ajout du produit:', _error);
-        if (_error instanceof PrismaClientKnownRequestError) {
-            if (_error.code === 'P2002') {
+    } catch (error: unknown) {
+        console.error('Erreur lors de l\'ajout du produit:', error);
+        if (error instanceof PrismaClientKnownRequestError) {
+            if (error.code === 'P2002') {
                 return NextResponse.json({ success: false, message: 'Un produit avec ces caractéristiques existe déjà.' }, { status: 409 });
             }
         }
-        const errorMessage = _error instanceof Error ? _error.message : String(_error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
             { message: `Erreur serveur lors de l'ajout du produit : ${errorMessage}` },
             { status: 500 }
@@ -275,19 +263,20 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
                     name: product.category.name,
                 },
                 rating: averageRating,
-                brand: product.brand, // Ajouté
-                color: product.color, // Ajouté
+                brand: product.brand,
+                color: product.color,
             };
             return formattedProduct;
         });
 
-        return NextResponse.json(formattedProducts, { status: 200 });
+        // Enveloppez la réponse dans un objet { success: true, data: ... }
+        return NextResponse.json({ success: true, data: formattedProducts }, { status: 200 });
 
-    } catch (_error: unknown) {
-        console.error('Erreur lors de la récupération des produits:', _error);
-        const errorMessage = _error instanceof Error ? _error.message : String(_error);
+    } catch (error: unknown) {
+        console.error('Erreur lors de la récupération des produits:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         return NextResponse.json(
-            { message: `Erreur serveur lors de la récupération des produits : ${errorMessage}` },
+            { success: false, message: `Erreur serveur lors de la récupération des produits : ${errorMessage}` },
             { status: 500 }
         );
     }

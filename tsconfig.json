@@ -21,11 +21,15 @@
       "@/assets/*": ["assets/*"],
       "@/context/*": ["context/*"],
       "@/app/*": ["app/*"],
-      "@/types/*": ["types/*"] // <-- AJOUTÉ: Assurez-vous que cette ligne est présente si vous utilisez '@/types/kkiapay'
+      "@/types/*": ["types/*"] // Ce chemin est correct pour les alias d'importation
     },
-    "typeRoots": ["./node_modules/@types", "./types"]
-    // "types": [ ] // <-- CETTE LIGNE A ÉTÉ SUPPRIMÉE
-    ,
+    // typeRoots indique à TypeScript où trouver les fichiers de déclaration de types
+    // pour les modules (par exemple, @types dans node_modules) et pour vos propres types globaux.
+    "typeRoots": ["./node_modules/@types", "./types"],
+    // La propriété "types" peut être laissée vide si vous voulez que TypeScript inclue
+    // automatiquement tous les fichiers .d.ts trouvés dans les typeRoots.
+    // Si vous la décommentez et la laissez vide comme précédemment, c'est aussi correct.
+    // "types": [],
     "plugins": [
       {
         "name": "next"
@@ -37,7 +41,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "next.config.js"
+    "next.config.js",
+    "types/**/*.d.ts" // <-- CORRECTION CLÉ : Inclut explicitement tous les fichiers .d.ts dans votre dossier 'types'
   ],
   "exclude": ["node_modules"]
 }

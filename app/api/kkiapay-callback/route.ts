@@ -1,143 +1,140 @@
 // app/api/kkiapay-callback/route.ts
-// Gère la redirection de Kkiapay après le paiement et la mise à jour finale de la commande et du paiement.
 
-import { NextResponse, NextRequest } from 'next/server';
-import prisma from '@/lib/prisma'; // Importez votre client Prisma
-import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client'; // Importez les enums et Prisma
-import { verifyKkiapayTransaction } from '@/lib/kkiapay'; // Assurez-vous que cette fonction utilise l'API privée Kkiapay
-
-// CORRECTION 1: Supprimé car KKIA_PRIVATE_API_KEY n'est pas utilisé directement dans ce fichier.
-// Il est censé être utilisé INTERNEMENT par verifyKkiapayTransaction dans lib/kkiapay.ts
-// const KKIA_PRIVATE_API_KEY = process.env.KKIAPAY_PRIVATE_API_KEY;
-
-interface ShippingAddress {
-    fullName?: string;
-    area?: string;
-    city?: string;
-    state?: string;
-    pincode?: string;
-    country?: string;
-    id?: string | null;
-}
-
-interface OrderItem {
-    productId: string;
-    quantity: number;
-    price: number;
-}
-
-interface OrderPayload {
-    userId?: string;
-    items?: OrderItem[];
-    shippingAddress?: ShippingAddress;
-    totalAmount?: number;
-    currency?: string;
-    userEmail?: string;
-    userPhoneNumber?: string;
-}
+import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { verifyKkiapayTransaction } from '@/lib/kkiapay';
 
 interface VerificationResult {
     status: string;
     amount?: number;
     paymentMethod?: string;
     transactionId?: string;
-    data?: string; // JSON string contenant payload commande
     message?: string;
-    currency?: string; // CORRECTION 3: Ajout de la propriété 'currency'
+    currency?: string;
+    state?: string;
+    reason?: { code?: string; message?: string };
 }
 
 export async function GET(request: NextRequest) {
     console.log("==> Kkiapay Callback GET reçu");
 
     const { searchParams } = new URL(request.url);
-    const yourGeneratedOrderId = searchParams.get('transactionId');
-    const kkiapayActualTransactionId = searchParams.get('transaction_id') || searchParams.get('id');
-    const statusFromKkiapayCallback = searchParams.get('status');
+    const orderId = searchParams.get('transactionId'); // C'est l'ID de notre commande que nous avons envoyé à Kkiapay
+    const kkiapayActualTransactionId = searchParams.get('transaction_id') || searchParams.get('id'); // ID de transaction Kkiapay réel
 
-    console.log("Params callback:", { yourGeneratedOrderId, kkiapayActualTransactionId, statusFromKkiapayCallback });
+    console.log("Params callback:", { orderId, kkiapayActualTransactionId });
 
-    const transactionIdToVerify = kkiapayActualTransactionId;
-    const orderId = yourGeneratedOrderId;
-
-    if (!transactionIdToVerify) {
-        console.error("Callback Kkiapay: ID de transaction Kkiapay réel manquant.");
-        return NextResponse.redirect(`${request.nextUrl.origin}/order-status?status=error&message=${encodeURIComponent('ID de transaction Kkiapay manquant pour la vérification.')}`);
-    }
     if (!orderId) {
-        console.error("Callback Kkiapay: Votre ID de commande est manquant (transactionId dans le callback Kkiapay).");
+        console.error("Callback Kkiapay: Votre ID de commande (transactionId) est manquant dans les paramètres du callback.");
         return NextResponse.redirect(`${request.nextUrl.origin}/order-status?status=error&message=${encodeURIComponent('Votre ID de commande est manquant dans le callback.')}`);
     }
 
+    if (!kkiapayActualTransactionId) {
+        console.error("Callback Kkiapay: ID de transaction Kkiapay réel manquant dans les paramètres du callback.");
+        return NextResponse.redirect(`${request.nextUrl.origin}/order-status?status=error&message=${encodeURIComponent('ID de transaction Kkiapay manquant pour la vérification.')}`);
+    }
+
+    let order: Awaited<ReturnType<typeof prisma.order.findUnique>> | null = null;
+
     try {
+        // 1. Récupérer la commande dans votre base de données en utilisant l'orderId (qui est le transactionId Kkiapay)
+        // CORRECTION: Utilisation de 'id' au lieu de 'kkiapayTransactionId' pour la recherche
+        order = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: { orderItems: true }
+        });
+
+        if (!order) {
+            console.error(`Erreur critique: Commande ${orderId} non trouvée dans la base de données lors du callback Kkiapay.`);
+            return NextResponse.redirect(new URL(`/order-status?orderId=${orderId}&status=failed&message=${encodeURIComponent('Commande introuvable pour la finalisation du paiement. Le paiement a peut-être échoué ou la commande n\'a pas été initiée correctement.')}`, request.url));
+        }
+
+        const nonNullableOrder = order as NonNullable<typeof order>; // Assertion de type pour aider TypeScript
+
+        // 2. Vérifier la transaction auprès de l'API Kkiapay (étape cruciale de sécurité)
         let verification: VerificationResult;
         try {
-            verification = await verifyKkiapayTransaction(transactionIdToVerify);
-            console.log("Réponse vérifiée du SDK Kkiapay:", verification);
+            verification = await verifyKkiapayTransaction(kkiapayActualTransactionId);
+            console.log("Réponse de vérification Kkiapay:", verification);
         } catch (verifyError: unknown) {
             const errorMessage =
-                typeof verifyError === 'object' && verifyError !== null && 'message' in verifyError
-                    ? (verifyError as { message: string }).message
-                    : String(verifyError);
-            console.error("Erreur vérification Kkiapay (via SDK):", errorMessage);
+                verifyError instanceof Error
+                    ? verifyError.message
+                    : (typeof verifyError === 'object' && verifyError !== null && 'message' in verifyError
+                        ? (verifyError as { message: string }).message
+                        : String(verifyError));
+            console.error("Erreur lors de la vérification Kkiapay:", errorMessage);
+
+            // Tenter de mettre à jour la commande et le paiement en FAILED si la vérification échoue
+            try {
+                await prisma.order.update({
+                    where: { id: orderId },
+                    data: {
+                        status: OrderStatus.PAYMENT_FAILED,
+                        paymentStatus: PaymentStatus.FAILED,
+                        updatedAt: new Date(),
+                    },
+                });
+                await prisma.payment.update({
+                    where: { orderId: orderId },
+                    data: {
+                        status: PaymentStatus.FAILED,
+                        updatedAt: new Date(),
+                    }
+                });
+                console.log(`Commande ${orderId} et paiement mis à jour en FAILED suite à l'échec de vérification.`);
+            } catch (dbUpdateError) {
+                console.error(`Erreur lors de la mise à jour de la commande/paiement en FAILED après échec de vérification:`, dbUpdateError);
+            }
+
             return NextResponse.redirect(
                 `${request.nextUrl.origin}/order-status?orderId=${orderId}&status=failed&message=${encodeURIComponent(
-                    'Erreur lors de la vérification Kkiapay: ' + (errorMessage || 'Erreur inconnue.')
+                    'Erreur lors de la vérification du paiement Kkiapay: ' + (errorMessage || 'Erreur inconnue.')
                 )}`
             );
         }
 
-        const isSuccess = verification.status === 'SUCCESS';
+        const isSuccess = verification.status === 'SUCCESS' && verification.state === 'COMPLETED';
         const kkiapayTransactionAmount = verification.amount || 0;
         const kkiapayPaymentMethod = verification.paymentMethod || 'Mobile Money';
-        const kkiapayActualTransactionIdFromSDK = verification.transactionId || transactionIdToVerify;
+        const kkiapayVerifiedTransactionId = verification.transactionId || kkiapayActualTransactionId;
 
-        // CORRECTION 2: Renommé _orderPayload pour supprimer le warning si non utilisé.
-        // On l'utilise ici pour potentiellement récupérer l'userId pour vider le panier.
-        let _orderPayload: OrderPayload | null = null;
-        if (verification.data) {
-            try {
-                _orderPayload = JSON.parse(verification.data);
-            } catch (parseErr: unknown) {
-                const errorMessage = typeof parseErr === 'object' && parseErr !== null && 'message' in parseErr
-                    ? (parseErr as { message: string }).message
-                    : String(parseErr);
-                console.warn("Erreur parsing data (payload Kkiapay):", errorMessage);
-            }
+        let finalOrderStatus: OrderStatus;
+        let finalPaymentStatus: PaymentStatus;
+        let redirectMessage: string = '';
+
+        if (isSuccess) {
+            finalOrderStatus = OrderStatus.PAID_SUCCESS;
+            finalPaymentStatus = PaymentStatus.COMPLETED;
+            redirectMessage = 'Paiement réussi ! Votre commande est en cours de traitement.';
+        } else {
+            finalOrderStatus = OrderStatus.PAYMENT_FAILED;
+            finalPaymentStatus = PaymentStatus.FAILED;
+            redirectMessage = verification.reason?.message || verification.message || 'Le paiement a échoué ou a été annulé.';
         }
 
         await prisma.$transaction(async (prismaTx) => {
-            const existingOrder = await prismaTx.order.findUnique({
-                where: { id: orderId },
-            });
-
-            if (!existingOrder) {
-                console.error(`Erreur critique: Commande ${orderId} non trouvée dans la base de données lors du callback Kkiapay.`);
-                throw new Error('Commande introuvable pour la finalisation du paiement.');
-            }
-
-            const finalOrderStatus = isSuccess ? OrderStatus.PAID_SUCCESS : OrderStatus.PAYMENT_FAILED;
-            const finalPaymentStatus = isSuccess ? PaymentStatus.COMPLETED : PaymentStatus.FAILED;
-
-            const updatedOrder = await prismaTx.order.update({
+            // Mettre à jour le statut de la commande
+            await prismaTx.order.update({
                 where: { id: orderId },
                 data: {
                     status: finalOrderStatus,
                     paymentStatus: finalPaymentStatus,
-                    kakapayTransactionId: kkiapayActualTransactionIdFromSDK,
                     updatedAt: new Date(),
                 },
             });
-            console.log(`Commande ${updatedOrder.id} mise à jour. Statut: ${finalOrderStatus}, Paiement: ${finalPaymentStatus}`);
+            console.log(`Commande ${orderId} mise à jour. Statut: ${finalOrderStatus}, Paiement: ${finalPaymentStatus}`);
 
+            // Mettre à jour l'enregistrement de paiement (upsert pour être robuste)
             const paymentAmountDecimal = new Prisma.Decimal(kkiapayTransactionAmount);
-
-            const upsertedPayment = await prismaTx.payment.upsert({
+            await prismaTx.payment.upsert({
                 where: { orderId: orderId },
                 update: {
                     paymentMethod: kkiapayPaymentMethod,
-                    transactionId: kkiapayActualTransactionIdFromSDK,
+                    transactionId: kkiapayVerifiedTransactionId,
                     amount: paymentAmountDecimal,
-                    currency: verification.currency || existingOrder.currency,
+                    currency: verification.currency || nonNullableOrder.currency,
                     status: finalPaymentStatus,
                     paymentDate: new Date(),
                     updatedAt: new Date(),
@@ -145,53 +142,38 @@ export async function GET(request: NextRequest) {
                 create: {
                     orderId: orderId,
                     paymentMethod: kkiapayPaymentMethod,
-                    transactionId: kkiapayActualTransactionIdFromSDK,
+                    transactionId: kkiapayVerifiedTransactionId,
                     amount: paymentAmountDecimal,
-                    currency: verification.currency || existingOrder.currency,
+                    currency: verification.currency || nonNullableOrder.currency,
                     status: finalPaymentStatus,
                     paymentDate: new Date(),
                     createdAt: new Date(),
                     updatedAt: new Date(),
-                },
+                }
             });
-            console.log(`Paiement pour commande ${orderId} upserté. ID transaction Kkiapay: ${upsertedPayment.transactionId}`);
+            console.log(`Paiement pour commande ${orderId} mis à jour/créé.`);
 
-            // Vider le panier si le paiement est un succès et si l'userId est disponible
-            // Utiliser existingOrder.userId car c'est la source la plus fiable pour l'utilisateur de la commande
-            // ou _orderPayload.userId si existingOrder.userId est null et _orderPayload.userId existe.
-            if (isSuccess && (existingOrder.userId || _orderPayload?.userId)) {
+            // Vider le panier de l'utilisateur si le paiement est réussi
+            if (isSuccess && nonNullableOrder.userId) {
                 await prismaTx.cartItem.deleteMany({
-                    where: {
-                        userId: existingOrder.userId || _orderPayload?.userId // Prioriser l'ID de la commande, sinon celui du payload
-                    },
+                    where: { userId: nonNullableOrder.userId },
                 });
-                console.log(`Panier de l'utilisateur ${existingOrder.userId || _orderPayload?.userId} vidé suite au succès du paiement.`);
+                console.log(`Panier de l'utilisateur ${nonNullableOrder.userId} vidé suite au succès du paiement.`);
             }
         });
 
         const redirectUrl = isSuccess
             ? `${request.nextUrl.origin}/order-status?orderId=${orderId}&status=success`
-            : `${request.nextUrl.origin}/order-status?orderId=${orderId}&status=failed&message=${encodeURIComponent(verification.message || 'Échec du paiement Kkiapay')}`;
+            : `${request.nextUrl.origin}/order-status?orderId=${orderId}&status=failed&message=${encodeURIComponent(redirectMessage)}`;
 
         return NextResponse.redirect(redirectUrl);
 
-    } catch (_error: unknown) {
-        const errorMessage = _error instanceof Error ? _error.message : String(_error);
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("Erreur générale lors du traitement du callback Kkiapay:", errorMessage);
 
-        if (
-            typeof _error === 'object' &&
-            _error !== null &&
-            'code' in _error &&
-            (_error as { code?: string }).code === 'P2025'
-        ) {
-            return NextResponse.redirect(
-                `${request.nextUrl.origin}/order-status?status=error&message=${encodeURIComponent('Erreur: Commande ou paiement non trouvé.')}`
-            );
-        }
-
         return NextResponse.redirect(
-            `${request.nextUrl.origin}/order-status?status=error&message=${encodeURIComponent('Erreur serveur interne lors du traitement du paiement.')}`
+            `${request.nextUrl.origin}/order-status?orderId=${orderId}&status=failed&message=${encodeURIComponent('Erreur serveur interne lors du traitement du paiement: ' + errorMessage)}`
         );
     }
 }

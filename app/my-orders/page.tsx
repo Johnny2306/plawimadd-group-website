@@ -1,199 +1,266 @@
 // app/my-orders/page.tsx
 'use client';
-import React, { useEffect, useState, useCallback } from "react";
-import { assets } from "@/assets/assets";
-import Image from "next/image";
-import { useAppContext } from "@/context/AppContext";
+
+import React, { useEffect, useState } from 'react';
+import { useAppContext } from '@/context/AppContext';
+import { OrderStatus, PaymentStatus } from '@/lib/types';
 import Footer from "@/components/Footer";
 import Loading from "@/components/Loading";
-// Assurez-vous que ces types sont importés correctement depuis votre fichier types.ts
-import { Order, OrderItem, OrderStatus, PaymentStatus } from '@/lib/types';
-/**
- * Composant de la page "Mes Commandes".
- * Affiche l'historique des commandes de l'utilisateur connecté.
- * @returns {React.ReactElement} Le JSX de la page des commandes.
- */
-const MyOrders = (): React.ReactElement => {
-    const { currency, userOrders, loadingOrders, fetchUserOrders, isLoggedIn, currentUser } = useAppContext();
+import Image from 'next/image'; // Réintroduire l'importation de Image
+import { ShoppingCart, Package, ChevronDown, ChevronUp } from 'lucide-react'; // Icônes
 
-    const orders: Order[] = userOrders;
-    const loading: boolean = loadingOrders;
-    const [error, setError] = useState<string | null>(null);
-
-    const memoizedFetchUserOrders = useCallback(() => {
-        fetchUserOrders();
-    }, [fetchUserOrders]);
+const MyOrdersPage = () => {
+    const { userOrders, loadingOrders, errorFetchingOrders, fetchUserOrders, formatPrice, isLoggedIn, currentUser } = useAppContext();
+    const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
     useEffect(() => {
         if (isLoggedIn && currentUser?.id) {
-            console.log("MyOrders component: User is logged in and currentUser.id is available, fetching orders.");
-            setError(null);
-            memoizedFetchUserOrders();
+            console.log("MyOrdersPage component: User is logged in and currentUser.id is available, fetching orders.");
+            fetchUserOrders();
         } else if (!isLoggedIn) {
-            setError("Veuillez vous connecter à votre compte pour consulter l'historique de vos commandes.");
+            console.log("MyOrdersPage component: User is not logged in, not fetching orders.");
         }
-    }, [isLoggedIn, currentUser?.id, memoizedFetchUserOrders]);
+    }, [isLoggedIn, currentUser?.id, fetchUserOrders]);
 
-    /**
-     * Formate un timestamp ou un objet Date en date et heure lisibles en français.
-     * @param {Date | string | number | undefined | null} dateTimeValue La valeur de date/heure à formater.
-     * @returns {string} La date et l'heure formatées ou un message d'erreur.
-     */
+    const toggleExpand = (orderId: string) => {
+        setExpandedOrderId(prevId => (prevId === orderId ? null : orderId));
+    };
+
+    const getStatusBadgeStyle = (status: OrderStatus | PaymentStatus | null) => {
+        if (!status) return 'bg-gray-200 text-gray-800 px-3 py-1.5 rounded-full text-sm font-semibold shadow-sm';
+
+        switch (status) {
+            case OrderStatus.DELIVERED:
+            case PaymentStatus.COMPLETED:
+                return 'bg-green-600 text-white px-3 py-1.5 rounded-full text-sm font-semibold shadow-md';
+            case OrderStatus.SHIPPED:
+            case OrderStatus.PROCESSING:
+                return 'bg-blue-600 text-white px-3 py-1.5 rounded-full text-sm font-semibold shadow-md';
+            case OrderStatus.PENDING:
+            case PaymentStatus.PENDING:
+                return 'bg-yellow-500 text-white px-3 py-1.5 rounded-full text-sm font-semibold shadow-md';
+            case OrderStatus.CANCELLED:
+            case OrderStatus.PAYMENT_FAILED:
+            case PaymentStatus.FAILED:
+                return 'bg-red-600 text-white px-3 py-1.5 rounded-full text-sm font-semibold shadow-md';
+            default:
+                return 'bg-gray-200 text-gray-800 px-3 py-1.5 rounded-full text-sm font-semibold shadow-sm';
+        }
+    };
+
     const formatFullDateTime = (dateTimeValue: Date | string | number | undefined | null): string => {
-        if (dateTimeValue === undefined || dateTimeValue === null) return "N/A";
+        if (dateTimeValue === undefined || dateTimeValue === null) return "Date non disponible";
 
         let date: Date;
 
         if (dateTimeValue instanceof Date) {
-            date = dateTimeValue; // C'est déjà un objet Date
+            date = dateTimeValue;
         } else if (typeof dateTimeValue === 'string') {
-            // Tente de convertir en nombre si c'est une chaîne de chiffres (timestamp)
             const numericTimestamp = parseInt(dateTimeValue, 10);
-            if (!isNaN(numericTimestamp) && numericTimestamp > 0) { // S'assurer que ce n'est pas 0 ou NaN
-                 // Très grande valeur = ms, plus petite valeur = secondes (environ 13 chiffres pour ms)
+            if (!isNaN(numericTimestamp) && numericTimestamp > 0) {
                 date = new Date(numericTimestamp < 1000000000000 ? numericTimestamp * 1000 : numericTimestamp);
             } else {
-                // Sinon, essaie de parser la chaîne directement (ex: "YYYY-MM-DDTHH:mm:ss.sssZ")
                 date = new Date(dateTimeValue);
             }
         } else if (typeof dateTimeValue === 'number') {
-            // Si c'est un nombre, traite comme un timestamp
             date = new Date(dateTimeValue < 1000000000000 && dateTimeValue > 0 ? dateTimeValue * 1000 : dateTimeValue);
         } else {
-            return "Date invalide"; // Pour tout autre type inattendu
-        }
-
-        if (isNaN(date.getTime())) {
-            console.error("Failed to parse date/timestamp:", dateTimeValue);
             return "Date invalide";
         }
 
+        if (isNaN(date.getTime()) || (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1)) {
+            console.warn("Date parsed as invalid or epoch (1970-01-01):", dateTimeValue);
+            return "Date non disponible";
+        }
+
         return date.toLocaleString('fr-FR', {
-            year: 'numeric', month: 'short', day: 'numeric',
-            hour: '2-digit', minute: '2-digit',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
             hour12: false
         });
     };
 
-    /**
-     * Détermine la classe CSS de couleur pour le badge de statut.
-     * @param {OrderStatus | PaymentStatus} status Le statut de la commande ou du paiement.
-     * @returns {string} La classe Tailwind CSS correspondante.
-     */
-    const getStatusBadgeStyle = (status: OrderStatus | PaymentStatus): string => { // Utilise les types d'énumération de Prisma
-        switch (status.toUpperCase()) {
-            case 'DELIVERED':
-            case 'COMPLETED':
-            case 'PAID':
-                return 'text-green-600 font-bold';
-            case 'PENDING':
-            case 'PROCESSING':
-            case 'SHIPPED':
-                return 'text-orange-500 font-bold';
-            case 'CANCELLED':
-            case 'FAILED':
-                return 'text-red-500 font-bold';
-            default:
-                return 'text-gray-600';
-        }
-    };
+
+    if (loadingOrders) {
+        return (
+            <div className="flex justify-center items-center min-h-[60vh] bg-gray-50">
+                <Loading />
+                <p className="ml-3 text-lg text-gray-700">Chargement de vos commandes...</p>
+            </div>
+        );
+    }
+
+    if (errorFetchingOrders) {
+        return (
+            <div className="text-center p-8 min-h-[60vh] flex flex-col justify-center items-center bg-gray-50">
+                <h1 className="text-3xl font-bold text-red-600 mb-4">Erreur de chargement des commandes</h1>
+                <p className="text-lg text-gray-700">
+                    Désolé, une erreur est survenue lors de la récupération de vos commandes: <span className="font-mono text-red-700">{errorFetchingOrders}</span>
+                </p>
+                <p className="text-md text-gray-600 mt-2">Veuillez réessayer plus tard.</p>
+            </div>
+        );
+    }
+
+    if (!isLoggedIn) {
+        return (
+            <div className="text-center p-8 min-h-[60vh] flex flex-col justify-center items-center bg-gray-50">
+                <h1 className="text-3xl font-bold text-gray-800 mb-4">Accès refusé</h1>
+                <p className="text-lg text-gray-700">
+                    Veuillez vous connecter pour consulter l&#39;historique de vos commandes.
+                </p>
+                <button
+                    onClick={() => window.location.href = '/login'}
+                    className="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold shadow-md hover:bg-blue-700 transition transform hover:scale-105"
+                >
+                    Se connecter
+                </button>
+            </div>
+        );
+    }
+
+    if (!userOrders || userOrders.length === 0) {
+        return (
+            <div className="text-center p-8 min-h-[60vh] flex flex-col justify-center items-center bg-gray-50">
+                <h1 className="text-3xl font-bold text-gray-800 mb-4">Aucune commande trouvée</h1>
+                <p className="text-lg text-gray-700">
+                    Vous n&#39;avez pas encore passé de commande. Explorez nos produits et commencez vos achats !
+                </p>
+                <button
+                    onClick={() => window.location.href = '/'}
+                    className="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold shadow-md hover:bg-blue-700 transition transform hover:scale-105"
+                >
+                    Commencer vos achats
+                </button>
+            </div>
+        );
+    }
 
     return (
         <>
-            <div className="flex flex-col justify-between px-6 md:px-16 lg:px-32 py-6 min-h-screen">
-                <div className="space-y-5">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-6 mt-6 text-center">Mes Commandes</h2>
-                    {loading ? (
-                        <Loading />
-                    ) : error ? (
-                        <div className="text-center mt-8 p-4 bg-red-100 border border-red-300 text-red-700 rounded-lg" role="alert">
-                            <p className="font-semibold mb-2">Erreur :</p>
-                            <p>{error}</p>
-                        </div>
-                    ) : (
-                        <div className="max-w-5xl mx-auto w-full">
-                            {orders.length === 0 ? (
-                                <p className="text-gray-600 mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg text-center shadow-sm">
-                                    Vous n&#39;avez pas encore passé de commandes. N&#39;hésitez pas à explorer nos produits !
-                                </p>
-                            ) : (
-                                <div className="grid gap-6">
-                                    {orders.map((order: Order) => (
-                                        <div key={order.id} className="flex flex-col md:flex-row gap-5 justify-between p-5 border border-gray-200 rounded-lg shadow-sm bg-white">
-                                            {/* Section Articles */}
-                                            <div className="flex-1 flex flex-col gap-3">
-                                                <Image
-                                                    className="w-16 h-16 object-cover mb-2 rounded-md"
-                                                    src={assets.box_icon}
-                                                    alt="icône de commande"
-                                                    width={64}
-                                                    height={64}
-                                                    priority
-                                                />
-                                                {/* Utilisation de order.id et troncature */}
-                                                <h3 className="font-bold text-lg text-gray-800">Commande #{order.id.substring(0, 8)}</h3>
-                                                <p className="font-medium text-base text-gray-700">
-                                                    Articles ({order.orderItems ? order.orderItems.length : 0}) :{" "}
-                                                    <span className="font-normal">
-                                                        {order.orderItems && order.orderItems.length > 0 ?
-                                                            order.orderItems.map((item: OrderItem) => `${item.name} x ${item.quantity}`).join(", ")
-                                                            : "Aucun article"
-                                                        }
-                                                    </span>
-                                                </p>
-                                                <p className="text-gray-700">
-                                                    Montant total : <span className="font-semibold text-blue-700">{currency}{parseFloat(order.totalAmount.toString()).toFixed(2)}</span>
-                                                </p>
-                                                {/* Utilisation de order.status */}
-                                                <p className="text-gray-700">
-                                                    Statut de la commande : <span className={`font-semibold ${getStatusBadgeStyle(order.status)}`}>{order.status}</span>
-                                                </p>
-                                            </div>
+            <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-100 py-10 px-4 md:px-8 font-sans">
+                <h1 className="text-5xl font-extrabold text-gray-900 mb-12 text-center drop-shadow-sm">Mes Commandes</h1>
 
-                                            {/* Section Adresse de livraison */}
-                                            <div className="flex flex-col p-4 bg-gray-50 rounded-md">
-                                                <p className="font-semibold mb-2 text-gray-800">Adresse de livraison :</p>
-                                                <address className="not-italic text-gray-700">
-                                                    {/* Utilisation des propriétés de l'interface Order pour l'adresse */}
-                                                    <span>{order.shippingAddressLine1 || 'N/A'}</span>
-                                                    {order.shippingAddressLine2 && <><br /><span>{order.shippingAddressLine2}</span></>}
-                                                    <br />
-                                                    <span>{`${order.shippingCity || 'N/A'}, ${order.shippingState || 'N/A'}`}</span>
-                                                    <br />
-                                                    <span>{order.shippingZipCode || 'N/A'}</span>
-                                                    <br />
-                                                    <span>{order.shippingCountry || 'N/A'}</span>
-                                                    {/* Utilisation de userPhoneNumber de l'ordre */}
-                                                    {order.userPhoneNumber ? (
-                                                        <><br /><span className="font-medium">Tél: {order.userPhoneNumber}</span></>
-                                                    ) : (
-                                                        <><br /><span className="font-medium text-gray-500">Tél: Non spécifié</span></>
-                                                    )}
-                                                </address>
-                                            </div>
+                <div className="max-w-7xl mx-auto space-y-6">
+                    {userOrders.map((order) => {
+                        const isExpanded = expandedOrderId === order.id;
+                        return (
+                            <div key={order.id} className="bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all duration-300 hover:scale-[1.005]">
+                                {/* En-tête de la commande - Ligne horizontale cliquable */}
+                                <div
+                                    className="bg-gradient-to-r from-blue-700 to-indigo-800 p-6 text-white flex flex-col sm:flex-row justify-between items-center gap-6 cursor-pointer"
+                                    onClick={() => toggleExpand(order.id)}
+                                >
+                                    {/* Section Gauche: Icône de commande, ID, Date */}
+                                    <div className="flex items-center gap-4 flex-1">
+                                        <ShoppingCart className="w-10 h-10 text-white drop-shadow-lg" />
+                                        <div>
+                                            <h2 className="text-3xl font-bold">Commande #{order.id.substring(0, 8)}...</h2>
+                                            <p className="text-sm opacity-90 mt-1">
+                                                <span className="font-semibold">Date:</span> {formatFullDateTime(order.orderDate)}
+                                            </p>
+                                        </div>
+                                    </div>
 
-                                            {/* Section Détails du paiement */}
-                                            <div className="flex flex-col p-4 bg-gray-50 rounded-md">
-                                                <p className="font-semibold mb-2 text-gray-800">Détails du paiement :</p>
-                                                <p className="text-gray-700">
-                                                    {/* Il n'y a pas de 'paymentMethod' directement sur l'interface Order
-                                                        Si le paiement est géré via un service externe, le type de paiement pourrait être lié au kakapayTransactionId
-                                                        Pour l'instant, je mets un placeholder. Vous devrez peut-être ajuster ici selon la source de cette donnée.
-                                                    */}
-                                                    Méthode : <span className="font-normal">{order.kakapayTransactionId ? 'Kakapay' : 'Non spécifié'}</span>
-                                                    <br />
-                                                    Paiement : <span className={`font-semibold ${getStatusBadgeStyle(order.paymentStatus)}`}>{order.paymentStatus}</span>
-                                                    <br />
-                                                    {/* Utilisation de order.orderDate qui est de type Date */}
-                                                    Date : <span className="font-normal">{formatFullDateTime(order.orderDate)}</span>
-                                                </p>
+                                    {/* Section Droite: Total, Statuts, Icône de dépliage */}
+                                    <div className="flex items-center gap-6">
+                                        <div className="text-center">
+                                            <p className="text-lg font-bold">Total</p>
+                                            <p className="text-xl font-extrabold">{formatPrice(order.totalAmount)}</p>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-lg font-bold">Statut</p>
+                                            <span className={`mt-1 inline-block ${getStatusBadgeStyle(order.status)}`}>
+                                                {order.status}
+                                            </span>
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-lg font-bold">Paiement</p>
+                                            <span className={`mt-1 inline-block ${getStatusBadgeStyle(order.paymentStatus)}`}>
+                                                {order.paymentStatus}
+                                            </span>
+                                        </div>
+                                        {isExpanded ? (
+                                            <ChevronUp className="w-6 h-6 ml-4 transition-transform duration-300" />
+                                        ) : (
+                                            <ChevronDown className="w-6 h-6 ml-4 transition-transform duration-300" />
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Contenu dépliable */}
+                                <div
+                                    className={`grid transition-all duration-500 ease-in-out ${
+                                        isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                    }`}
+                                >
+                                    <div className="overflow-hidden">
+                                        <div className="p-8 border-b border-gray-100">
+                                            <h3 className="text-xl font-bold text-gray-800 mb-6 border-b-2 pb-2 border-blue-200">Articles commandés</h3>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                {order.orderItems.map((item, itemIndex) => (
+                                                    <div key={itemIndex} className="flex items-center space-x-4 bg-gray-50 p-4 rounded-xl shadow-sm border border-gray-100">
+                                                        {/* Affichage de l'image du produit ou de l'icône de remplacement */}
+                                                        {Array.isArray(item.product.imgUrl) && item.product.imgUrl.length > 0 && item.product.imgUrl[0] ? (
+                                                            <Image
+                                                                src={item.product.imgUrl[0]}
+                                                                alt={item.product.name}
+                                                                width={64}
+                                                                height={64}
+                                                                className="w-16 h-16 object-cover rounded-lg shadow-inner flex-shrink-0"
+                                                                // Fallback si l'image Cloudinary ne se charge pas
+                                                                onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                                                                    e.currentTarget.style.display = 'none'; // Cache l'image cassée
+                                                                    const parent = e.currentTarget.parentElement;
+                                                                    if (parent) {
+                                                                        const iconDiv = document.createElement('div');
+                                                                        iconDiv.className = 'w-16 h-16 flex items-center justify-center bg-blue-100 rounded-lg shadow-inner flex-shrink-0';
+                                                                        iconDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package text-blue-600"><path d="m7.5 4.27v-2.4c0-1.1.9-2 2-2h3.5c1.1 0 2 .9 2 2v2.4"/><path d="M4.5 9.5v11.3c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V9.5"/><path d="M12 2v20"/><path d="M18.5 4.27a2 2 0 0 1 1.43 2.5l-4.27 12.59a2 2 0 0 1-3.26.85L6 11"/><path d="M5.5 4.27a2 2 0 0 0-1.43 2.5l4.27 12.59a2 2 0 0 0 3.26.85L18 11"/></svg>`;
+                                                                        parent.appendChild(iconDiv);
+                                                                    }
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            <div className="w-16 h-16 flex items-center justify-center bg-blue-100 rounded-lg shadow-inner flex-shrink-0">
+                                                                <Package className="w-9 h-9 text-blue-600" />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex-1">
+                                                            <p className="text-gray-900 font-semibold text-lg">{item.product.name}</p>
+                                                            <p className="text-sm text-gray-600 mt-1">Quantité: <span className="font-medium">{item.quantity}</span></p>
+                                                            <p className="text-sm text-gray-600">Prix unitaire: <span className="font-medium">{formatPrice(item.priceAtOrder)}</span></p>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
-                                    ))}
+
+                                        {/* Détails de livraison et paiement */}
+                                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10 text-gray-700">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-800 mb-4 border-b-2 pb-2 border-blue-200">Adresse de livraison</h3>
+                                                <p className="text-base leading-relaxed">{order.shippingAddressLine1}</p>
+                                                {order.shippingAddressLine2 && <p className="text-base leading-relaxed">{order.shippingAddressLine2}</p>}
+                                                <p className="text-base leading-relaxed">{order.shippingCity}, {order.shippingState}</p>
+                                                {order.shippingZipCode && <p className="text-base leading-relaxed">{order.shippingZipCode}</p>}
+                                                <p className="text-base leading-relaxed">{order.shippingCountry}</p>
+                                            </div>
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-800 mb-4 border-b-2 pb-2 border-blue-200">Contact & Paiement</h3>
+                                                <p className="text-base leading-relaxed">Email: <span className="font-medium">{order.userEmail}</span></p>
+                                                {order.userPhoneNumber && <p className="text-base leading-relaxed">Téléphone: <span className="font-medium">{order.userPhoneNumber}</span></p>}
+                                                <p className="text-base leading-relaxed mt-4">Méthode de paiement: <span className="font-medium">{order.paymentMethod || 'Non spécifié'}</span></p>
+                                                {/* ID de transaction Kkiapay supprimé comme demandé */}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                    )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
             <Footer />
@@ -201,4 +268,4 @@ const MyOrders = (): React.ReactElement => {
     );
 };
 
-export default MyOrders;
+export default MyOrdersPage;

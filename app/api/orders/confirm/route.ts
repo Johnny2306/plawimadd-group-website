@@ -1,160 +1,206 @@
-// C:\xampp\htdocs\plawimadd_group\app\api\orders\confirm\route.ts
-// Cette route gère la confirmation finale d'une commande après un paiement réussi.
+// app/api/orders/confirm/route.ts
+// Ce webhook reçoit les notifications de transaction de Kkiapay et met à jour l'état des commandes et paiements.
 
-import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma'; // Importez le client Prisma partagé
-import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client'; // Importez les enums et Prisma
-import { verifyPaymentToken } from '@/lib/payment'; // Assurez-vous que cette fonction est bien typée et implémentée
-import { authorizeLoggedInUser, AuthResult } from '@/lib/authUtils'; // Importez la fonction d'autorisation utilisateur
+import { NextResponse, NextRequest } from 'next/server';
+import crypto from 'crypto';
+import prisma from '@/lib/prisma';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client'; // Importez les enums de Prisma ET Prisma
 
-// Interfaces pour le corps de la requête
-interface CartItemPayload {
-    productId: string;
-    quantity: number;
-    price: number; // Prix unitaire au moment de l'ajout au panier
-}
-
-interface ShippingAddressPayload {
-    fullName: string;
-    phoneNumber: string;
-    pincode: string;
-    area: string;
-    city: string;
-    state: string;
-    street?: string | null; // Rendu optionnel et peut être null
-    country?: string | null; // Rendu optionnel et peut être null
-}
-
-interface PaymentDetailsPayload {
-    method: string; // Ex: 'Kkiapay', 'Card', 'Mobile Money'
-    currency: string; // Ex: 'XOF', 'EUR'
-    transactionId?: string | null; // ID de transaction du fournisseur de paiement (peut être null si non disponible immédiatement)
-}
-
-interface ConfirmOrderRequest {
-    // userId n'est plus dans le payload, il est récupéré via l'authentification
-    cartItems: CartItemPayload[];
-    paymentToken: string; // Jeton de vérification du paiement (ex: de Kkiapay, Stripe, etc.)
-    shippingAddress: ShippingAddressPayload;
-    paymentDetails: PaymentDetailsPayload;
-}
+// IMPORTANT: Utiliser le nom de variable d'environnement correct : KKIAPAY_SECRET
+const KKIAPAY_WEBHOOK_SECRET = process.env.KKIAPAY_SECRET; // Correction: KKIAPAY_SECRET
 
 /**
- * Calcule le montant total d'une liste d'articles.
- * @param items Les articles du panier.
- * @returns Le montant total.
+ * Valide la signature du webhook Kkiapay.
+ * @param rawBody Le corps brut de la requête.
+ * @param signatureHeader L'en-tête 'X-Kkiapay-Signature'.
+ * @param secret Le secret de webhook Kkiapay.
+ * @returns true si la signature est valide, false sinon.
  */
-function calculateTotal(items: CartItemPayload[]): number {
-    return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+function isValidKkiapayWebhookSignature(
+    rawBody: string,
+    signatureHeader: string | null,
+    secret: string | undefined
+): boolean {
+    if (!secret) {
+        console.error('KKIAPAY_SECRET non configuré dans les variables d\'environnement.');
+        return false;
+    }
+    if (!signatureHeader) {
+        console.warn('Webhook reçu sans en-tête X-Kkiapay-Signature. Rejeté.');
+        return false;
+    }
+    const hmac = crypto.createHmac('sha256', secret);
+    hmac.update(rawBody);
+    const digest = hmac.digest('hex');
+    const isVerified = digest === signatureHeader;
+    if (!isVerified) {
+        console.error(`Signature invalide: reçue ${signatureHeader}, calculée ${digest}`);
+    }
+    return isVerified;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-    // 1. Authentification de l'utilisateur
-    const authResult: AuthResult = await authorizeLoggedInUser(request);
-    if (!authResult.authorized) {
-        return authResult.response!; // Renvoie la réponse d'erreur (401, 403)
-    }
-    const userId = authResult.userId!; // L'ID de l'utilisateur authentifié
+interface KkiapayEventData {
+    id: string; // Transaction ID Kkiapay
+    reference?: string; // Order ID interne (string car l'ID de commande est un UUID)
+    status: 'SUCCESS' | 'FAILED' | 'CANCELLED' | 'PENDING' | string; // Statut transaction Kkiapay
+    amount: number;
+    currency?: string;
+    paymentMethod?: string;
+}
+
+interface KkiapayWebhookEvent {
+    event_type: string;
+    data: KkiapayEventData;
+}
+
+export async function POST(req: NextRequest) {
+    let rawBody: string;
 
     try {
-        const body: ConfirmOrderRequest = await request.json();
-        const { cartItems, paymentToken, shippingAddress, paymentDetails } = body;
+        rawBody = await req.text(); // Lire le corps brut de la requête
+        const event: KkiapayWebhookEvent = JSON.parse(rawBody);
+        const signature = req.headers.get('X-Kkiapay-Signature');
 
-        // 2. Validation basique des données
-        if (
-            !cartItems ||
-            cartItems.length === 0 ||
-            !paymentToken ||
-            !shippingAddress ||
-            !shippingAddress.fullName ||
-            !shippingAddress.phoneNumber ||
-            !shippingAddress.area ||
-            !shippingAddress.city ||
-            !shippingAddress.state ||
-            !paymentDetails ||
-            !paymentDetails.method ||
-            !paymentDetails.currency
-        ) {
-            return NextResponse.json({ error: 'Requête invalide : données de commande, adresse ou paiement manquantes.' }, { status: 400 });
+        // Validation de la signature du webhook
+        if (!isValidKkiapayWebhookSignature(rawBody, signature, KKIAPAY_WEBHOOK_SECRET)) {
+            return NextResponse.json({ message: 'Signature de webhook invalide' }, { status: 401 });
         }
 
-        const totalAmountCalculated = calculateTotal(cartItems);
+        console.log('--- Webhook Kkiapay reçu ---');
+        console.log('Event type:', event.event_type);
+        console.log('Event data:', event.data);
+        console.log('---------------------------');
 
-        // 3. Vérifier le paiement auprès du fournisseur
-        // Cette fonction doit communiquer avec l'API du fournisseur de paiement pour confirmer la validité du token/transaction.
-        const isValidPayment = await verifyPaymentToken(paymentToken);
-        if (!isValidPayment) {
-            console.warn(`Paiement invalide pour l'utilisateur ${userId} avec token ${paymentToken}.`);
-            return NextResponse.json({ error: 'Paiement invalide ou non vérifié par le fournisseur.' }, { status: 400 });
+        const {
+            id: kkiapayTransactionId, // Kkiapay transaction ID
+            reference: orderReference, // This is your internal order ID if you passed it to Kkiapay's reference field
+            status: paymentStatusFromKkiapay,
+            amount,
+            currency = 'XOF',
+            paymentMethod = 'Inconnu'
+        } = event.data;
+
+        let newOrderStatus: OrderStatus;
+        let newPaymentStatus: PaymentStatus;
+
+        // Mappage des statuts Kkiapay vers les enums Prisma
+        switch (paymentStatusFromKkiapay) {
+            case 'SUCCESS':
+                newOrderStatus = OrderStatus.PAID_SUCCESS;
+                newPaymentStatus = PaymentStatus.COMPLETED;
+                break;
+            case 'FAILED':
+            case 'CANCELLED':
+                newOrderStatus = OrderStatus.PAYMENT_FAILED;
+                newPaymentStatus = PaymentStatus.FAILED;
+                break;
+            case 'PENDING':
+                newOrderStatus = OrderStatus.PENDING;
+                newPaymentStatus = PaymentStatus.PENDING;
+                break;
+            default:
+                newOrderStatus = OrderStatus.PAYMENT_FAILED;
+                newPaymentStatus = PaymentStatus.FAILED;
+                console.warn(`Statut Kkiapay inattendu (${paymentStatusFromKkiapay}), traité comme échec.`);
         }
 
-        // 4. Enregistrer la commande et le paiement dans une transaction Prisma
-        const order = await prisma.$transaction(async (prismaTx) => {
-            // Création des OrderItems pour la création imbriquée
-            const orderItemsForPrisma = cartItems.map(item => ({
-                productId: item.productId,
-                quantity: item.quantity,
-                priceAtOrder: new Prisma.Decimal(item.price), // Convertir en Decimal
-            }));
+        // Début de la transaction Prisma
+        await prisma.$transaction(async (prismaTx) => {
+            let orderToUpdateId: string | null = null;
 
-            // Création de la commande
-            const createdOrder = await prismaTx.order.create({
-                data: {
-                    userId: userId, // Utilisateur authentifié
-                    status: OrderStatus.PAID_SUCCESS, // Statut initial après vérification du paiement
-                    paymentStatus: PaymentStatus.COMPLETED, // Statut de paiement initial
-                    totalAmount: new Prisma.Decimal(totalAmountCalculated), // Montant total calculé
-
-                    // Détails de l'adresse de livraison (snapshot sur la commande)
-                    shippingAddressLine1: shippingAddress.area, // Utilisation de 'area' pour line1
-                    shippingAddressLine2: shippingAddress.street || null, // 'street' pour line2
-                    shippingCity: shippingAddress.city,
-                    shippingState: shippingAddress.state,
-                    shippingZipCode: shippingAddress.pincode || null,
-                    shippingCountry: shippingAddress.country || 'Unknown', // Valeur par défaut si non fournie
-
-                    userEmail: (await prismaTx.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email || 'unknown@example.com', // Récupérer l'email de l'utilisateur
-                    userPhoneNumber: (await prismaTx.user.findUnique({ where: { id: userId }, select: { phoneNumber: true } }))?.phoneNumber || null, // Récupérer le numéro de téléphone
-
-                    currency: paymentDetails.currency,
-                    kakapayTransactionId: paymentDetails.transactionId || null, // ID de transaction du fournisseur
-
-                    // Création imbriquée des articles de commande
-                    orderItems: {
-                        create: orderItemsForPrisma,
-                    },
-                },
-                include: { // Inclure les orderItems dans la réponse si nécessaire
-                    orderItems: true,
+            // Tenter de trouver la commande par l'ID de transaction Kkiapay (qui est maintenant Order.id)
+            // Ou par la référence si Kkiapay l'a envoyée et qu'elle correspond à un Order.id
+            if (kkiapayTransactionId) {
+                const orderFoundById = await prismaTx.order.findUnique({
+                    where: { id: kkiapayTransactionId },
+                    select: { id: true },
+                });
+                if (orderFoundById) {
+                    orderToUpdateId = orderFoundById.id;
                 }
-            });
+            }
 
-            // Enregistrer le paiement
-            await prismaTx.payment.create({
+            // Si non trouvée par kkiapayTransactionId, et si une référence est fournie, tenter par la référence
+            if (!orderToUpdateId && orderReference) {
+                const orderFoundByReference = await prismaTx.order.findUnique({
+                    where: { id: orderReference },
+                    select: { id: true },
+                });
+                if (orderFoundByReference) {
+                    orderToUpdateId = orderFoundByReference.id;
+                }
+            }
+
+            if (!orderToUpdateId) {
+                console.warn(`Commande non trouvée pour transaction Kkiapay ID: ${kkiapayTransactionId} ou référence: ${orderReference}.`);
+                throw new Error('Commande non trouvée pour mise à jour du statut de paiement.');
+            }
+
+            // Mise à jour de la commande
+            const updatedOrder = await prismaTx.order.update({
+                where: { id: orderToUpdateId },
                 data: {
-                    orderId: createdOrder.id,
-                    amount: new Prisma.Decimal(totalAmountCalculated),
-                    paymentMethod: paymentDetails.method,
-                    currency: paymentDetails.currency,
-                    status: PaymentStatus.COMPLETED,
-                    transactionId: paymentDetails.transactionId || null,
-                    paymentDate: new Date(),
+                    status: newOrderStatus,
+                    paymentStatus: newPaymentStatus,
+                    // kkiapayTransactionId n'existe plus, l'ID de la commande est le transactionId Kkiapay
+                    updatedAt: new Date(),
                 },
             });
+            console.log(`Commande ${updatedOrder.id} mise à jour. Nouveau statut: ${newOrderStatus}, Statut paiement: ${newPaymentStatus}`);
 
-            // Vider le panier de l'utilisateur après une commande réussie
-            await prismaTx.cartItem.deleteMany({
-                where: { userId: userId },
+            // Insert ou update du paiement
+            const paymentAmountDecimal = new Prisma.Decimal(amount);
+
+            const upsertedPayment = await prismaTx.payment.upsert({
+                where: { orderId: orderToUpdateId },
+                update: {
+                    paymentMethod: paymentMethod,
+                    transactionId: kkiapayTransactionId, // L'ID de transaction Kkiapay est stocké ici
+                    amount: paymentAmountDecimal,
+                    currency: currency,
+                    status: newPaymentStatus,
+                    paymentDate: new Date(),
+                    updatedAt: new Date(),
+                },
+                create: {
+                    orderId: orderToUpdateId,
+                    paymentMethod: paymentMethod,
+                    transactionId: kkiapayTransactionId, // L'ID de transaction Kkiapay est stocké ici
+                    amount: paymentAmountDecimal,
+                    currency: currency,
+                    status: newPaymentStatus,
+                    paymentDate: new Date(),
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
             });
-            console.log(`Panier de l'utilisateur ${userId} vidé après la confirmation de la commande ${createdOrder.id}.`);
+            console.log(`Paiement pour commande ${orderToUpdateId} upserté. ID transaction Kkiapay: ${upsertedPayment.transactionId}`);
 
-            return createdOrder; // Retourne l'objet commande créé
+            // Vider le panier de l'utilisateur si le paiement est réussi
+            if (newPaymentStatus === PaymentStatus.COMPLETED && updatedOrder.userId) {
+                await prismaTx.cartItem.deleteMany({
+                    where: { userId: updatedOrder.userId },
+                });
+                console.log(`Panier de l'utilisateur ${updatedOrder.userId} vidé suite au succès du paiement.`);
+            }
         });
 
-        return NextResponse.json({ success: true, orderId: order.id }, { status: 201 });
-    } catch (_error: unknown) { // Correction ESLint: renommé 'err' en '_error'
-        const errorMessage = _error instanceof Error ? _error.message : String(_error);
-        console.error('Erreur dans /api/orders/confirm:', _error);
-        return NextResponse.json({ error: `Erreur serveur lors de la confirmation de la commande: ${errorMessage}` }, { status: 500 });
+        console.log('Webhook Kkiapay traité avec succès et transaction DB committée.');
+        return NextResponse.json({ message: 'Webhook Kkiapay traité avec succès' }, { status: 200 });
+
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('Erreur lors du traitement du webhook Kkiapay:', error);
+
+        if (
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            (error as { code?: string }).code === 'P2025'
+        ) {
+            return NextResponse.json({ message: 'Erreur: Commande ou paiement non trouvé pour mise à jour.' }, { status: 404 });
+        }
+
+        return NextResponse.json({ message: `Erreur interne lors du traitement du webhook: ${message}` }, { status: 500 });
     }
 }
