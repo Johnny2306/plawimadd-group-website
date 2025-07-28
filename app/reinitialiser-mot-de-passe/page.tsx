@@ -61,6 +61,9 @@ export default function ResetPasswordPage(): React.ReactElement { // Type le com
         }
 
         try {
+            // L'URL de l'API doit être relative si la route est sur le même domaine,
+            // ou utiliser baseUrl si vous l'avez dans un contexte global.
+            // Pour Vercel, '/api/users/reinitialiser-mot-de-passe' est généralement correct.
             const response = await fetch('/api/users/reinitialiser-mot-de-passe', {
                 method: 'POST',
                 headers: {
@@ -74,8 +77,11 @@ export default function ResetPasswordPage(): React.ReactElement { // Type le com
             if (response.ok) {
                 setMessage(data.message);
                 setTimeout(() => {
-                    router.push('/login'); // Rediriger vers la page de connexion après une réinitialisation réussie
-                }, 3000);
+                    // MODIFIÉ : Redirige vers l'URL complète de votre application Vercel
+                    // Note: router.push('/') est souvent suffisant pour rediriger vers la racine du domaine actuel.
+                    // L'utilisation de l'URL complète peut être utile pour des cas spécifiques ou si des problèmes de redirection relative persistent.
+                    router.push('https://plawimadd-group-9gcrfo40b-john-johns-projects-596db80b.vercel.app'); 
+                }, 3000); // Délai de 3 secondes avant la redirection
             } else {
                 setError(data.message || 'Une erreur est survenue lors de la réinitialisation.');
             }

@@ -15,7 +15,6 @@ import type { UserRole } from "@/lib/types";
 // Meilleure pratique pour éviter les instanciations multiples de PrismaClient en développement (Hot Reload)
 // En production, chaque requête peut avoir sa propre instance si nécessaire, mais un singleton est courant.
 declare global {
-  // La directive eslint-disable-next-line no-var a été supprimée car elle était inutilisée et générait un avertissement ESLint.
   var prismaGlobal: PrismaClient | undefined;
 }
 
@@ -37,6 +36,7 @@ interface CustomUser extends User {
   role: UserRole;
   firstName: string;
   lastName: string;
+  token?: string; // Ajouté: Le token est passé du JWT à la session.user, donc il devrait être ici aussi.
 }
 
 interface CustomJWT extends JWT {
@@ -58,7 +58,7 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials): Promise<CustomUser | null> {
         // Log plus détaillé pour les requêtes manquantes
         if (!credentials?.email || !credentials?.password) {
-          console.log("Authorize: Email ou mot de passe manquant dans les credentials.");
+          console.log("[NextAuth] Authorize: Email ou mot de passe manquant dans les credentials.");
           // NextAuth renvoie automatiquement un 401 si authorize retourne null
           return null;
         }
@@ -69,13 +69,13 @@ export const authOptions: NextAuthOptions = {
           });
 
           if (!user) {
-            console.log(`Authorize: Utilisateur non trouvé pour l'email: ${credentials.email}.`);
+            console.log(`[NextAuth] Authorize: Utilisateur non trouvé pour l'email: ${credentials.email}.`);
             return null;
           }
 
           // Vérification si le champ password existe sur l'utilisateur récupéré
           if (!user.password) {
-            console.error(`Authorize: L'utilisateur ${user.email} n'a pas de mot de passe défini dans la DB.`);
+            console.error(`[NextAuth] Authorize: L'utilisateur ${user.email} n'a pas de mot de passe défini dans la DB.`);
             return null; // L'utilisateur existe mais n'a pas de mot de passe pour la connexion par identifiants
           }
 
@@ -83,9 +83,11 @@ export const authOptions: NextAuthOptions = {
             credentials.password,
             user.password
           );
+          // Log du résultat de la comparaison du mot de passe pour un débogage facile
+          console.log(`[NextAuth] Authorize: Résultat de la comparaison du mot de passe pour ${user.email}: ${isPasswordCorrect}`);
 
           if (!isPasswordCorrect) {
-            console.log(`Authorize: Mot de passe incorrect pour l'email: ${user.email}.`);
+            console.log(`[NextAuth] Authorize: Mot de passe incorrect pour l'email: ${user.email}.`);
             // Pour des raisons de sécurité, éviter de logguer le mot de passe clair
             return null;
           }
@@ -98,21 +100,23 @@ export const authOptions: NextAuthOptions = {
             role: (user.role as UserRole) || "USER", // S'assurer que 'role' est bien une 'UserRole'
             firstName: user.firstName ?? "",
             lastName: user.lastName ?? "",
+            // Si votre modèle User a un champ 'token' persistant, vous pouvez le retourner ici
+            // token: user.token,
           };
         } catch (error: unknown) {
           // Gestion des erreurs plus spécifique pour Prisma
           if (error instanceof PrismaClientKnownRequestError) {
             // P2002: Unique constraint violation (ex: si on avait un create ici)
             // P2025: Record not found (moins probable ici car géré par !user, mais utile pour d'autres ops)
-            console.error(`Authorize: Erreur Prisma (${error.code}):`, error.message);
+            console.error(`[NextAuth] Authorize: Erreur Prisma (${error.code}):`, error.message);
             // On peut logguer les meta (champs affectés) si disponibles
-            if (error.meta) console.error("Prisma Error Meta:", error.meta);
+            if (error.meta) console.error("[NextAuth] Prisma Error Meta:", error.meta);
           } else if (error instanceof PrismaClientValidationError) {
-            console.error("Authorize: Erreur de validation Prisma (schéma):", error.message);
+            console.error("[NextAuth] Authorize: Erreur de validation Prisma (schéma):", error.message);
           } else if (error instanceof Error) {
-            console.error("Authorize: Erreur inattendue:", error.message);
+            console.error("[NextAuth] Authorize: Erreur inattendue:", error.message);
           } else {
-            console.error("Authorize: Erreur inconnue lors de l'authentification.");
+            console.error("[NextAuth] Authorize: Erreur inconnue lors de l'authentification.");
           }
           return null; // Toujours retourner null en cas d'échec d'authentification
         }
