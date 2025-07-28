@@ -22,7 +22,6 @@ import {
     AppContextType,
     ProductsApiResponse,
     OrdersApiResponse,
-    // Removed: OrderItemForDisplay, // Plus besoin d'importer directement ici
 } from '@/lib/types';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -31,7 +30,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const router = useRouter();
     const { data: session, status } = useSession();
 
-    const url = ''; // Assurez-vous que cette URL est correcte pour votre environnement de déploiement
+    // CORRECTION MAJEURE ICI: Définir l'URL de base de manière dynamique et robuste.
+    const [baseUrl, setBaseUrl] = useState('');
+
+    useEffect(() => {
+        // Détermination de l'URL de base pour les appels API
+        if (typeof window !== 'undefined') {
+            // Côté client (dans le navigateur), utilisez l'origine de la fenêtre actuelle.
+            // C'est la méthode la plus fiable pour gérer les URL de prévisualisation Vercel et les domaines personnalisés.
+            setBaseUrl(window.location.origin);
+        } else if (process.env.VERCEL_URL) {
+            // Côté serveur (pour le build ou SSR si ce contexte était utilisé en SSR),
+            // utilisez la variable d'environnement VERCEL_URL.
+            setBaseUrl(`https://${process.env.VERCEL_URL}`);
+        } else if (process.env.NEXT_PUBLIC_VERCEL_URL) {
+            // Alternative si VERCEL_URL n'est pas disponible ou si vous préférez une clé publique
+            setBaseUrl(`https://${process.env.NEXT_PUBLIC_VERCEL_URL}`);
+        } else {
+            // Fallback pour le développement local
+            setBaseUrl('http://localhost:3000');
+        }
+    }, []); // Ce useEffect ne dépend de rien, il s'exécute une seule fois au montage
 
     const currency = 'XOF' as const;
 
@@ -43,7 +62,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
     const [cartItems, setCartItems] = useState<Record<string, number>>({});
     const [loadingCart, setLoadingCart] = useState(true);
-    const [initialCartLoaded, setInitialCartLoaded] = useState(false); // NOUVEL ÉTAT POUR LE PANIER
+    const [initialCartLoaded, setInitialCartLoaded] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
 
@@ -60,7 +79,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [deliveryFee, setDeliveryFee] = useState(0);
 
     const formatPriceInFCFA = useCallback((price: number): string => {
-        return new Intl.NumberFormat('fr-CM', {
+        return new Intl.NumberFormat('fr-FR', {
             style: 'currency',
             currency: currency,
             minimumFractionDigits: 0,
@@ -70,22 +89,24 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         console.log("[AppContext] Session status changed:", status);
         if (status === 'authenticated' && session?.user) {
+            // CORRECTION: Suppression des casts 'as any'
+            // Ces propriétés doivent être correctement typées via la déclaration de module NextAuth.
             const userFromSession: User = {
                 id: String(session.user.id),
                 name: session.user.name || null,
                 email: session.user.email || null,
                 image: session.user.image || null,
                 role: session.user.role || 'USER',
-                token: session.user.token || '',
-                firstName: session.user.firstName || '',
-                lastName: session.user.lastName || ''
+                token: session.user.token || '', // Nécessite l'extension du type Session
+                firstName: session.user.firstName || '', // Nécessite l'extension du type Session
+                lastName: session.user.lastName || '' // Nécessite l'extension du type Session
             };
             setCurrentUser(userFromSession);
             setIsLoggedIn(true);
             // Réinitialiser les drapeaux de chargement initial lors d'une nouvelle authentification
             setInitialOrdersLoaded(false);
             setInitialAddressesLoaded(false);
-            setInitialCartLoaded(false); // Réinitialiser le drapeau du panier
+            setInitialCartLoaded(false);
             console.log("[AppContext] User authenticated:", userFromSession.id);
         } else if (status === 'unauthenticated') {
             console.log("[AppContext] User unauthenticated, clearing data.");
@@ -98,15 +119,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             // Réinitialiser les drapeaux de chargement initial lors de la déconnexion
             setInitialOrdersLoaded(false);
             setInitialAddressesLoaded(false);
-            setInitialCartLoaded(false); // Réinitialiser le drapeau du panier
+            setInitialCartLoaded(false);
         }
     }, [session, status]);
 
     const fetchProducts = useCallback(async () => {
+        // Attendre que baseUrl soit défini avant de faire l'appel API
+        if (!baseUrl) {
+            console.log("[AppContext] fetchProducts: baseUrl not yet defined, skipping fetch.");
+            return;
+        }
         setLoadingProducts(true);
         setErrorProducts(null);
         try {
-            const response = await axios.get<ProductsApiResponse>(`${url}/api/products`);
+            // Utilisation de baseUrl ici pour tous les appels API
+            const response = await axios.get<ProductsApiResponse>(`${baseUrl}/api/products`);
             console.log("[AppContext] Products API raw response:", response.data);
 
             let productsData: Product[] = [];
@@ -153,9 +180,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         } finally {
             setLoadingProducts(false);
         }
-    }, [url]);
+    }, [baseUrl]); // Dépendance à baseUrl
 
     const loadCartData = useCallback(async () => {
+        // Attendre que baseUrl soit défini avant de faire l'appel API
+        if (!baseUrl) {
+            console.log("[AppContext] loadCartData: baseUrl not yet defined, skipping API fetch.");
+            setLoadingCart(false);
+            setInitialCartLoaded(true);
+            return;
+        }
+
         setLoadingCart(true);
         if (!isLoggedIn || !currentUser?.id || !currentUser?.token) {
             try {
@@ -167,14 +202,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 setCartItems({});
             } finally {
                 setLoadingCart(false);
-                setInitialCartLoaded(true); // Marquer comme chargé même si non connecté
+                setInitialCartLoaded(true);
             }
             return;
         }
 
         try {
             const response = await axios.get<{ cartItems: { productId: string; quantity: number }[] }>(
-                `${url}/api/cart/${currentUser.id}`,
+                `${baseUrl}/api/cart/${currentUser.id}`, // Utilisation de baseUrl
                 { headers: { 'auth-token': currentUser.token } }
             );
 
@@ -207,18 +242,24 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             }
         } finally {
             setLoadingCart(false);
-            setInitialCartLoaded(true); // Marquer comme chargé après la tentative
+            setInitialCartLoaded(true);
         }
-    }, [isLoggedIn, currentUser?.id, currentUser?.token, url, router]);
+    }, [isLoggedIn, currentUser?.id, currentUser?.token, baseUrl, router]); // Dépendance à baseUrl
 
     const updateCartOnServer = useCallback(async (productId: string, quantity: number): Promise<boolean> => {
+        // Attendre que baseUrl soit défini avant de faire l'appel API
+        if (!baseUrl) {
+            console.log("[AppContext] updateCartOnServer: baseUrl not yet defined, skipping API update.");
+            return false;
+        }
+
         if (!isLoggedIn || !currentUser?.id || !currentUser?.token) {
             return false;
         }
 
         try {
             await axios.put(
-                `${url}/api/cart/${currentUser.id}`,
+                `${baseUrl}/api/cart/${currentUser.id}`, // Utilisation de baseUrl
                 { productId, quantity },
                 { headers: { 'auth-token': currentUser.token } }
             );
@@ -230,7 +271,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             toast.error("Erreur de synchronisation du panier avec le serveur. Réessayez.");
             return false;
         }
-    }, [url, isLoggedIn, currentUser?.id, currentUser?.token]);
+    }, [baseUrl, isLoggedIn, currentUser?.id, currentUser?.token]); // Dépendance à baseUrl
 
     const addToCart = useCallback(async (productId: string): Promise<boolean> => {
         const idAsString = String(productId);
@@ -315,7 +356,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
 
         try {
-            const response = await axios.delete(`${url}/api/cart/${currentUser.id}`, {
+            const response = await axios.delete(`${baseUrl}/api/cart/${currentUser.id}`, { // Utilisation de baseUrl
                 data: { productId: idAsString },
                 headers: { 'auth-token': currentUser.token }
             });
@@ -333,7 +374,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             await loadCartData();
             return false;
         }
-    }, [cartItems, isLoggedIn, currentUser?.id, currentUser?.token, url, loadCartData]);
+    }, [cartItems, isLoggedIn, currentUser?.id, currentUser?.token, baseUrl, loadCartData]); // Dépendance à baseUrl
 
     const updateCartQuantity = useCallback(async (productId: string, quantity: number): Promise<boolean> => {
         const idAsString = String(productId);
@@ -386,7 +427,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setCartItems({});
         localStorage.removeItem('cartItems');
         if (isLoggedIn && currentUser?.id && currentUser?.token) {
-            axios.delete(`${url}/api/cart/${currentUser.id}`, {
+            axios.delete(`${baseUrl}/api/cart/${currentUser.id}`, { // Utilisation de baseUrl
                 headers: { 'auth-token': currentUser.token }
             }).catch(error => {
                 console.error("Error clearing cart on server:", error);
@@ -394,10 +435,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             });
         }
         toast.success("Panier vidé !");
-    }, [isLoggedIn, currentUser?.id, currentUser?.token, url]);
+    }, [isLoggedIn, currentUser?.id, currentUser?.token, baseUrl]);
 
 
     const fetchUserOrders = useCallback(async () => {
+        // Attendre que baseUrl soit défini avant de faire l'appel API
+        if (!baseUrl) {
+            console.log("[AppContext] fetchUserOrders: baseUrl not yet defined, skipping fetch.");
+            setLoadingOrders(false);
+            setErrorFetchingOrders("Veuillez vous connecter pour voir vos commandes.");
+            setInitialOrdersLoaded(true);
+            return;
+        }
+
         if (!isLoggedIn || !currentUser?.id || !currentUser?.token) {
             console.log("[AppContext] fetchUserOrders: User not logged in or missing ID/token, skipping fetch.");
             setUserOrders([]);
@@ -412,7 +462,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
         console.log(`[AppContext] fetchUserOrders: Fetching orders for user ${currentUser.id}...`);
         try {
-            const response = await axios.get<OrdersApiResponse>(`${url}/api/user/orders`, { // MODIFIÉ: URL pour correspondre à la route GET
+            const response = await axios.get<OrdersApiResponse>(`${baseUrl}/api/user/orders`, { // MODIFIÉ: URL pour correspondre à la route GET
                 headers: { 'auth-token': currentUser.token }
             });
             console.log("[AppContext] fetchUserOrders: API raw response received:", response.data);
@@ -458,9 +508,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             setInitialOrdersLoaded(true);
             console.log("[AppContext] fetchUserOrders: Loading finished.");
         }
-    }, [url, isLoggedIn, currentUser?.id, currentUser?.token, router]);
+    }, [baseUrl, isLoggedIn, currentUser?.id, currentUser?.token, router]); // Dépendance à baseUrl
 
     const fetchUserAddresses = useCallback(async () => {
+        // Attendre que baseUrl soit défini avant de faire l'appel API
+        if (!baseUrl) {
+            console.log("[AppContext] fetchUserAddresses: baseUrl not yet defined, skipping fetch.");
+            setUserAddresses([]);
+            setLoadingAddresses(false);
+            setErrorFetchingAddresses("Veuillez vous connecter pour voir vos adresses.");
+            setInitialAddressesLoaded(true);
+            return;
+        }
+
         if (!isLoggedIn || !currentUser?.id || !currentUser?.token) {
             console.log("[AppContext] fetchUserAddresses: User not logged in or missing ID/token, skipping fetch.");
             setUserAddresses([]);
@@ -476,7 +536,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         console.log(`[AppContext] fetchUserAddresses: Attempting to fetch addresses for user ${currentUser.id}...`);
         try {
             const response = await axios.get<{ success: boolean; addresses: Address[] }>(
-                `${url}/api/addresses/${currentUser.id}`,
+                `${baseUrl}/api/addresses/${currentUser.id}`, // Utilisation de baseUrl
                 { headers: { 'auth-token': currentUser.token } }
             );
             console.log("[AppContext] fetchUserAddresses: API response received:", response.data);
@@ -509,7 +569,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             setInitialAddressesLoaded(true);
             console.log("[AppContext] fetchUserAddresses: Loading finished.");
         }
-    }, [url, isLoggedIn, currentUser?.id, currentUser?.token, router]);
+    }, [baseUrl, isLoggedIn, currentUser?.id, currentUser?.token, router]); // Dépendance à baseUrl
 
     useEffect(() => {
         const filtered = products.filter(product => {
@@ -522,14 +582,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }, [products, searchTerm, selectedCategory]);
 
     useEffect(() => {
-        console.log("[AppContext] Main useEffect triggered. Calling fetchProducts.");
-        fetchProducts();
-    }, [fetchProducts]);
+        // Déclencher le chargement des produits uniquement si baseUrl est défini
+        if (baseUrl) {
+            console.log("[AppContext] Main useEffect triggered. Calling fetchProducts.");
+            fetchProducts();
+        } else {
+            console.log("[AppContext] Main useEffect: baseUrl not yet defined, waiting to call fetchProducts.");
+        }
+    }, [fetchProducts, baseUrl]); // Ajout de baseUrl comme dépendance
 
     useEffect(() => {
-        console.log("[AppContext] User-specific data useEffect triggered. isLoggedIn:", isLoggedIn, "currentUser.id:", currentUser?.id);
-        if (isLoggedIn && currentUser?.id) {
-            console.log("[AppContext] User logged in, checking data loading status...");
+        console.log("[AppContext] User-specific data useEffect triggered. isLoggedIn:", isLoggedIn, "currentUser.id:", currentUser?.id, "baseUrl:", baseUrl);
+        // Ne charger les données spécifiques à l'utilisateur que si baseUrl est défini
+        if (baseUrl && isLoggedIn && currentUser?.id) {
+            console.log("[AppContext] User logged in and baseUrl defined, checking data loading status...");
 
             // Charger le panier uniquement si pas déjà en cours de chargement ET n'a pas été initialement chargé
             if (!loadingCart && !initialCartLoaded) {
@@ -556,7 +622,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             }
 
         } else {
-            console.log("[AppContext] User not logged in, skipping user-specific data fetch and clearing local state.");
+            console.log("[AppContext] User not logged in or baseUrl not defined, skipping user-specific data fetch and clearing local state.");
             setUserOrders([]);
             setUserAddresses([]);
             setCartItems({});
@@ -565,26 +631,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             setErrorFetchingAddresses(null);
             setInitialOrdersLoaded(false);
             setInitialAddressesLoaded(false);
-            setInitialCartLoaded(false); // Réinitialiser le drapeau du panier
+            setInitialCartLoaded(false);
         }
     }, [
         isLoggedIn,
         currentUser?.id,
+        baseUrl, // Ajout de baseUrl comme dépendance ici aussi
         loadCartData,
         fetchUserOrders,
         fetchUserAddresses,
         loadingCart,
         loadingOrders,
         loadingAddresses,
-        initialCartLoaded, // Ajouté comme dépendance
+        initialCartLoaded,
         initialOrdersLoaded,
         initialAddressesLoaded,
-        // userOrders.length et userAddresses.length ne sont plus nécessaires ici pour le déclenchement initial
-        // Ils peuvent rester si vous avez d'autres logiques qui en dépendent pour des re-évaluations.
-        // Pour l'instant, je les retire pour simplifier les dépendances de ce useEffect précis.
-        // Si des problèmes de rafraîchissement des données apparaissent, nous les réintroduirons.
-        // errorFetchingOrders, // Pas besoin ici, la logique de re-fetch est dans fetchUserOrders
-        // errorFetchingAddresses // Pas besoin ici, la logique de re-fetch est dans fetchUserAddresses
     ]);
 
     const contextValue: AppContextType = {
@@ -622,7 +683,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         fetchUserAddresses,
         router,
         currency,
-        url,
+        url: baseUrl, // Utilise baseUrl ici
         clearCart,
     };
 

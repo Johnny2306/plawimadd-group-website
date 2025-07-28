@@ -36,11 +36,12 @@ declare global {
             amount: number;
             api_key: string;
             callback: string;
-            transaction_id: string;
+            // IMPORTANT: 'transaction_id' est supprimé ici pour éviter l'erreur de propriété en double.
+            // L'ID est déjà passé via le paramètre 'transactionId' dans l'URL de callback.
             email?: string;
             phone?: string;
             position?: string;
-            sandbox?: boolean; // Maintenu pour la compatibilité de type
+            sandbox?: boolean;
             data?: string;
         }) => void;
         addSuccessListener: (callback: (response: KkiapaySuccessResponse) => void) => void;
@@ -67,10 +68,9 @@ const OrderSummary = () => {
         products,
         cartItems,
         formatPrice,
+        clearCart,
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        clearCart, // Ignorer cet avertissement car clearCart est une fonction fournie par le contexte
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        loadCartData, // Maintenu pour le linter, mais plus appelé directement ici
+        loadCartData, // Utilisation du nom original et eslint-disable pour l'avertissement 'never used'
     } = useAppContext();
 
     const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
@@ -78,7 +78,7 @@ const OrderSummary = () => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showKkiapayWidget, setShowKkiapayWidget] = useState(false);
-    const [transactionIdForKkiapay, setTransactionIdForKkiapay] = useState<string | null>(null);
+    const [transactionIdForKkiapay, setTransactionIdForKkiapay] = useState<string | null>(null); // This will be our order ID
 
     const [isKkiapayWidgetApiReady, setIsKkiapayWidgetApiReady] = useState(false);
     const kkiapayApiCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -135,45 +135,14 @@ const OrderSummary = () => {
                 let addressToSelect: Address | undefined;
 
                 if (newAddressIdFromParam) {
-                    // Convertir newAddressIdFromParam en nombre pour la recherche
                     const parsedNewAddressId = parseInt(newAddressIdFromParam, 10);
                     if (!isNaN(parsedNewAddressId)) {
                         addressToSelect = userAddresses.find((addr: Address) => addr.id === parsedNewAddressId);
                     }
                     if (addressToSelect) {
                         console.log("[Address Effect Debug] Found address via newAddressId param:", addressToSelect);
-                        if (!addressToSelect.isDefault && currentUser && currentUser.id) {
-                            console.log("[Address Effect Debug] Setting new address as default via API...");
-                            axios.put(
-                                `${url}/api/addresses/${currentUser.id}`,
-                                {
-                                    id: addressToSelect.id, // L'ID est un nombre ici
-                                    isDefault: true,
-                                    fullName: addressToSelect.fullName,
-                                    phoneNumber: addressToSelect.phoneNumber,
-                                    area: addressToSelect.area,
-                                    city: addressToSelect.city,
-                                    state: addressToSelect.state,
-                                    street: addressToSelect.street,
-                                    country: addressToSelect.country,
-                                    pincode: addressToSelect.pincode,
-                                },
-                                { headers: { 'Content-Type': 'application/json' } }
-                            ).then(response => {
-                                if (response.data.success) {
-                                    toast.success("Nouvelle adresse définie par défaut !");
-                                    fetchUserAddresses();
-                                    router.replace(pathname);
-                                    console.log("[Address Effect Debug] Default address set successfully, routing to clear param.");
-                                } else {
-                                    toast.error("Échec de la définition de la nouvelle adresse par défaut.");
-                                    console.warn("[Address Effect Debug] Failed to set new address as default:", response.data.message);
-                                }
-                            }).catch(error => {
-                                console.error("Erreur setting default address:", error);
-                                toast.error("Erreur réseau lors de la mise à jour de l'adresse par défaut.");
-                            });
-                        }
+                        // Suppression de la logique d'appel API pour définir automatiquement la nouvelle adresse comme par défaut.
+                        // L'utilisateur pourra la définir manuellement via le sélecteur si désiré.
                     } else {
                         console.log("[Address Effect Debug] newAddressId param present, but address not found in userAddresses. Falling back to default/first.");
                     }
@@ -190,7 +159,7 @@ const OrderSummary = () => {
                     }
                 }
 
-                const currentSelectedId = selectedAddress?.id; // selectedAddress.id est maintenant un number
+                const currentSelectedId = selectedAddress?.id;
                 const newSelectedId = addressToSelect?.id;
 
                 if (addressToSelect && newSelectedId !== currentSelectedId) {
@@ -291,12 +260,13 @@ const OrderSummary = () => {
                         isDefault: true,
                         fullName: address.fullName,
                         phoneNumber: address.phoneNumber,
-                        pincode: address.pincode,
                         area: address.area,
                         city: address.city,
                         state: address.state,
                         street: address.street,
                         country: address.country,
+                        // Correction: Suppression de la propriété 'pincode' en double
+                        pincode: address.pincode, 
                     },
                     { headers }
                 );
@@ -314,9 +284,9 @@ const OrderSummary = () => {
         }
     }, [currentUser, url, fetchUserAddresses]);
 
-    // Fonction pour créer la commande et initier le paiement Kkiapay
+    // Fonction pour initier le paiement Kkiapay (sans création de commande préalable)
     const createOrder = async () => {
-        console.log("--- Début de la fonction createOrder ---");
+        console.log("--- Début de la fonction createOrder (initiation paiement) ---");
 
         if (!selectedAddress) {
             console.log("[Create Order] ERREUR: Aucune adresse sélectionnée.");
@@ -351,75 +321,24 @@ const OrderSummary = () => {
         }
 
         setIsLoading(true);
-        toast.info("Préparation de la commande et du paiement Kkiapay...");
+        toast.info("Génération de la commande et ouverture du paiement Kkiapay...");
 
         try {
             // Étape 1: Générer un ID de transaction unique (UUID) pour la commande
+            // Cet ID sera utilisé comme notre orderId interne ET comme transaction_id pour Kkiapay
             const newTransactionId = uuidv4();
             setTransactionIdForKkiapay(newTransactionId);
             console.log(`[Create Order] Generated new transaction ID for order: ${newTransactionId}`);
 
-            // Étape 2: Construire le payload de la commande pour notre API /api/order/create
-            const orderItemsForPayload: OrderItemForCreatePayload[] = Object.entries(cartItems).map(([productId, quantity]) => {
-                const numericQuantity = quantity as number;
-                const product = products.find((p: Product) => String(p.id) === String(productId));
-                if (!product) {
-                    console.warn(`[Create Order] Produit avec ID ${productId} non trouvé dans la liste des produits.`);
-                    return null;
-                }
-                return {
-                    productId: productId,
-                    quantity: numericQuantity,
-                    price: product.offerPrice ?? product.price,
-                };
-            }).filter((item): item is OrderItemForCreatePayload => item !== null);
-
-            if (orderItemsForPayload.length === 0) {
-                console.log("[Create Order] ERREUR: Le panier ne contient pas d'articles valides pour la commande après filtrage.");
-                toast.error("Le panier ne contient pas d'articles valides pour la commande.");
-                setIsLoading(false);
-                return;
-            }
-
-            const createOrderPayload: CreateOrderPayload = {
-                id: newTransactionId,
-                items: orderItemsForPayload,
-                totalAmount: totalAmountToPay,
-                shippingAddress: selectedAddress,
-                paymentMethod: "Kkiapay",
-                userEmail: currentUser.email,
-                userPhoneNumber: selectedAddress.phoneNumber || currentUser.phoneNumber || null,
-                currency: currency,
-            };
-
-            // Étape 3: Créer la commande dans notre base de données avec statut PENDING
-            const createOrderResponse = await axios.post<{ success: boolean; orderId: string; message?: string }>(
-                `${url}/api/order/create`,
-                createOrderPayload,
-                { headers: { 'Content-Type': 'application/json', 'auth-token': currentUser.token } }
-            );
-
-            if (createOrderResponse.status !== 201 || !createOrderResponse.data.success || !createOrderResponse.data.orderId) {
-                console.error("[Create Order] L'API /api/order/create a échoué.", createOrderResponse.data);
-                toast.error(`Erreur lors de la création de la commande: ${createOrderResponse.data.message || 'Erreur inconnue.'}`);
-                setIsLoading(false);
-                return;
-            }
-            console.log(`[Create Order] Commande ${createOrderResponse.data.orderId} créée en DB avec statut PENDING.`);
-
-            toast.success("Commande enregistrée ! Ouverture du paiement Kkiapay...");
+            toast.success("Ouverture du paiement Kkiapay...");
             setShowKkiapayWidget(true); // Déclenche l'ouverture du widget Kkiapay via useEffect
 
         } catch (error) {
-            console.error("[Create Order] Erreur lors de la création de la commande:", error);
-            if (axios.isAxiosError(error) && error.response) {
-                toast.error(`Erreur serveur: ${error.response.data.message || 'Impossible de créer la commande.'}`);
-            } else {
-                toast.error("Erreur inattendue lors de la commande.");
-            }
+            console.error("[Create Order] Erreur lors de l'initiation de la commande/paiement:", error);
+            toast.error("Erreur inattendue lors de l'initiation du paiement.");
         } finally {
             setIsLoading(false);
-            console.log("--- Fin de la fonction createOrder ---");
+            console.log("--- Fin de la fonction createOrder (initiation paiement) ---");
         }
     };
 
@@ -446,23 +365,87 @@ const OrderSummary = () => {
                     window.openKkiapayWidget({
                         amount: totalAmountToPay,
                         api_key: KKIAPAY_PUBLIC_API_KEY as string,
-                        callback: `${window.location.origin}/api/kkiapay-callback?transactionId=${transactionIdForKkiapay}`, // Passer notre orderId/transactionId
-                        transaction_id: transactionIdForKkiapay, // Kkiapay peut aussi l'utiliser
+                        // La callback de Kkiapay renverra vers notre route /api/kkiapay-callback
+                        // Nous passons notre orderId interne via 'transactionId'
+                        callback: `${window.location.origin}/api/kkiapay-callback?transactionId=${transactionIdForKkiapay}`,
+                        // Correction: Suppression complète de la propriété 'transaction_id' pour éviter l'erreur de propriété en double
+                        // transaction_id: transactionIdForKkiapay, // Cette ligne a été supprimée
                         email: currentUser?.email ?? '',
                         phone: selectedAddress?.phoneNumber ?? '',
                         position: "center",
-                        sandbox: false, // <-- MODIFICATION CLÉ : Toujours en mode Live
-                        // Ne pas passer le payload complet à Kkiapay.data
-                        // data: JSON.stringify(preparedOrderPayload) // REMOVED
+                        sandbox: process.env.NODE_ENV === 'development', // Mode sandbox en dev, Live en prod
                     });
 
+                    // --- LISTENERS DE SUCCÈS ET D'ÉCHEC DU WIDGET KKIAPAY ---
                     if (typeof window.addSuccessListener === 'function') {
-                        const successListener = (response: KkiapaySuccessResponse) => {
+                        const successListener = async (response: KkiapaySuccessResponse) => {
                             console.log("[Kkiapay Widget] Paiement Kkiapay succès via addSuccessListener:", response);
                             setShowKkiapayWidget(false);
-                            // Rediriger vers la page de statut de la commande avec l'ID de notre commande
-                            router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=success`);
-                            window.removeSuccessListener(successListener);
+                            toast.success("Paiement Kkiapay réussi ! Création de la commande...");
+
+                            try {
+                                // Étape CRUCIALE : Créer la commande dans la base de données après succès du paiement
+                                const orderItemsForPayload: OrderItemForCreatePayload[] = Object.entries(cartItems).map(([productId, quantity]) => {
+                                    const numericQuantity = quantity as number;
+                                    const product = products.find((p: Product) => String(p.id) === String(productId));
+                                    if (!product) {
+                                        console.warn(`[Create Order After Payment] Produit avec ID ${productId} non trouvé dans la liste des produits.`);
+                                        return null;
+                                    }
+                                    return {
+                                        productId: productId,
+                                        quantity: numericQuantity,
+                                        price: product.offerPrice ?? product.price,
+                                    };
+                                }).filter((item): item is OrderItemForCreatePayload => item !== null);
+
+                                if (orderItemsForPayload.length === 0) {
+                                    console.error("[Create Order After Payment] ERREUR: Le panier ne contient pas d'articles valides après le paiement.");
+                                    toast.error("Erreur: Panier vide après paiement. Contactez le support.");
+                                    router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=failed&message=${encodeURIComponent('Panier vide après paiement.')}`);
+                                    return;
+                                }
+
+                                const createOrderPayload: CreateOrderPayload = {
+                                    id: transactionIdForKkiapay, // Utilise l'ID généré au début comme orderId
+                                    items: orderItemsForPayload,
+                                    totalAmount: totalAmountToPay,
+                                    shippingAddress: selectedAddress!, // selectedAddress est garanti non null ici
+                                    paymentMethod: "Kkiapay",
+                                    userEmail: currentUser!.email ?? '', // Correction: Assure que userEmail est toujours une chaîne
+                                    userPhoneNumber: selectedAddress!.phoneNumber || currentUser!.phoneNumber || null,
+                                    currency: currency,
+                                    // Ajouter les détails de transaction Kkiapay pour le backend
+                                    kkiapayTransactionId: response.transactionId,
+                                    kkiapayPaymentMethod: response.paymentMethod,
+                                    kkiapayAmount: response.amount,
+                                    kkiapayStatus: response.status,
+                                };
+
+                                const createOrderBackendResponse = await axios.post<{ success: boolean; orderId: string; message?: string }>(
+                                    `${url}/api/orders/create-after-payment`, // NOUVELLE ROUTE API
+                                    createOrderPayload,
+                                    { headers: { 'Content-Type': 'application/json', 'auth-token': currentUser!.token } }
+                                );
+
+                                if (createOrderBackendResponse.status === 200 && createOrderBackendResponse.data.success) {
+                                    toast.success("Commande créée avec succès !");
+                                    clearCart(); // Vider le panier après création réussie
+                                    router.push(`/order-status?orderId=${createOrderBackendResponse.data.orderId}&status=success`);
+                                } else {
+                                    console.error("[Create Order After Payment] Échec de la création de la commande côté backend:", createOrderBackendResponse.data);
+                                    toast.error(`Erreur lors de la finalisation de la commande: ${createOrderBackendResponse.data.message || 'Erreur inconnue.'}`);
+                                    router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=failed&message=${encodeURIComponent('Erreur lors de la finalisation de la commande.')}`);
+                                }
+
+                            } catch (backendError) {
+                                console.error("[Create Order After Payment] Erreur lors de l'appel à l'API backend pour créer la commande:", backendError);
+                                toast.error("Erreur réseau lors de la finalisation de la commande.");
+                                router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=failed&message=${encodeURIComponent('Erreur réseau lors de la finalisation de la commande.')}`);
+                            } finally {
+                                // Correction: Supprimer l'appel à window.removeSuccessListener car il n'est pas exposé par le SDK Kkiapay
+                                // window.removeSuccessListener(successListener); 
+                            }
                         };
                         window.addSuccessListener(successListener);
                     } else {
@@ -474,9 +457,9 @@ const OrderSummary = () => {
                             const errorMessage = error.reason?.message || error.message || "Le paiement a échoué ou a été annulé.";
                             console.warn("[Kkiapay Widget] Paiement Kkiapay échec via addFailedListener:", error);
                             setShowKkiapayWidget(false);
-                            // Rediriger vers la page de statut de la commande avec l'ID de notre commande
                             router.push(`/order-status?orderId=${transactionIdForKkiapay}&status=failed&message=${encodeURIComponent(errorMessage)}`);
-                            window.removeFailedListener(failedListener);
+                            // Correction: Supprimer l'appel à window.removeFailedListener car il n'est pas exposé par le SDK Kkiapay
+                            // window.removeFailedListener(failedListener);
                         };
                         window.addFailedListener(failedListener);
                     } else {
@@ -509,7 +492,20 @@ const OrderSummary = () => {
                 kkiapayOpenRetryTimeoutRef.current = null;
             }
         };
-    }, [showKkiapayWidget, transactionIdForKkiapay, totalAmountToPay, currentUser, selectedAddress, KKIAPAY_PUBLIC_API_KEY, currency, router]);
+    }, [
+        showKkiapayWidget, 
+        transactionIdForKkiapay, 
+        totalAmountToPay, 
+        currentUser, 
+        selectedAddress, 
+        KKIAPAY_PUBLIC_API_KEY, 
+        currency, 
+        router,
+        cartItems, // Ajouté pour la dépendance de la création de commande
+        products, // Ajouté pour la dépendance de la création de commande
+        clearCart, // Ajouté pour la dépendance de la création de commande
+        url // Ajouté à la dépendance pour résoudre l'avertissement ESLint
+    ]);
 
 
     const isButtonDisabled = getCartCount() === 0 || isLoading || !isKkiapayWidgetApiReady || !KKIAPAY_PUBLIC_API_KEY || !selectedAddress;

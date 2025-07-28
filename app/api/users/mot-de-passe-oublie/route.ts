@@ -74,10 +74,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         });
 
         // 4. Construire le lien de réinitialisation
-        // Assurez-vous que NEXT_PUBLIC_BASE_URL est défini dans votre .env (ex: http://localhost:3000)
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+        // Assurez-vous que  est défini dans votre .env (ex: http://localhost:3000)
+        const baseUrl = process.env.NEXTAUTH_URL ;
         if (!baseUrl) {
-            console.error("NEXT_PUBLIC_BASE_URL n'est pas défini dans les variables d'environnement.");
+            console.error("NEXTAUTH_URL  n'est pas défini dans les variables d'environnement.");
             // Décidez si vous voulez retourner une erreur ici ou continuer et laisser l'envoi d'email échouer
             return NextResponse.json(
                 { message: 'Configuration serveur incomplète pour la réinitialisation de mot de passe.' },
