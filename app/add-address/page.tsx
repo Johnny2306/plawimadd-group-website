@@ -11,10 +11,7 @@ import { toast } from 'react-toastify';
 import { IconType } from 'react-icons';
 import { FiUser, FiPhone, FiMapPin, FiHome, FiNavigation, FiMail, FiSave } from 'react-icons/fi';
 import { IoLocationOutline } from 'react-icons/io5';
-// IMPORTER LE TYPE 'User' DIRECTEMENT DE 'next-auth' APRÈS EXTENSION DANS types/next-auth.d.ts
-// Cela garantit que 'session.user' a bien les propriétés 'id', 'role', 'token'
-import { User as NextAuthUser } from 'next-auth';
-import { Address } from '@/lib/types'; // Importez l'interface Address de lib/types
+import { Address, User } from '@/lib/types'; // Importez l'interface Address ET User de lib/types
 import { assets } from "@/assets/assets";
 import Footer from "@/components/Footer";
 
@@ -25,6 +22,8 @@ interface AddressFormState {
     area: string;
     city: string;
     state: string;
+    street: string; // Ajouté
+    country: string; // Ajouté
 }
 
 interface InputFieldConfig {
@@ -47,6 +46,8 @@ const AddAddress = (): React.ReactElement => {
         area: '',
         city: '',
         state: '',
+        street: '', // Initialisé
+        country: '', // Initialisé
     });
     const [message, setMessage] = useState<string>('');
     const [isClient, setIsClient] = useState<boolean>(false);
@@ -54,9 +55,7 @@ const AddAddress = (): React.ReactElement => {
     useEffect(() => {
         setIsClient(true);
         if (status === 'authenticated' && session?.user) {
-            // Utiliser le type 'NextAuthUser' qui inclut 'id', 'role', 'token' grâce à types/next-auth.d.ts
-            const userFromSession: NextAuthUser = session.user;
-            setCurrentUser(userFromSession);
+            setCurrentUser(session.user as User); // Cast explicite pour s'assurer de la compatibilité
         } else if (status === 'unauthenticated') {
             setCurrentUser(null);
         }
@@ -71,14 +70,15 @@ const AddAddress = (): React.ReactElement => {
         e.preventDefault();
         setMessage('');
 
-        // Vérifier si currentUser est défini et a un ID valide
         if (!currentUser?.id) {
             toast.error("Veuillez vous connecter pour ajouter une adresse.");
             router.push('/login');
             return;
         }
 
-        if (!address.fullName || !address.phoneNumber || !address.area || !address.city || !address.state) {
+        // Assurez-vous que tous les champs obligatoires sont remplis
+        // 'country' est obligatoire dans schema.prisma, donc il doit être validé ici
+        if (!address.fullName || !address.phoneNumber || !address.area || !address.city || !address.state || !address.country) {
             toast.error("Veuillez remplir tous les champs obligatoires.");
             return;
         }
@@ -89,10 +89,10 @@ const AddAddress = (): React.ReactElement => {
 
             const payload: Partial<Address> = {
                 ...address,
+                pincode: address.pincode || null, // Assurez-vous que pincode est null si vide pour correspondre à l'interface
                 isDefault: false,
-                // Assurez-vous que le champ `userId` est bien envoyé à l'API
-                // Il est préférable de le récupérer de `currentUser.id` ici
                 userId: currentUser.id,
+                // street et country sont maintenant inclus via ...address
             };
 
             const res = await axios.post(
@@ -112,6 +112,8 @@ const AddAddress = (): React.ReactElement => {
                     area: '',
                     city: '',
                     state: '',
+                    street: '', // Réinitialisé
+                    country: '', // Réinitialisé
                 });
                 fetchUserAddresses(); // Recharger les adresses après l'ajout
                 router.push('/cart'); // Rediriger vers le panier
@@ -185,7 +187,7 @@ const AddAddress = (): React.ReactElement => {
                                     </div>
                                     <textarea
                                         name="area"
-                                        placeholder="Adresse"
+                                        placeholder="Adresse (Numéro de rue, Bâtiment, etc.)"
                                         rows={4}
                                         value={address.area}
                                         onChange={onChangeHandler}
@@ -194,6 +196,39 @@ const AddAddress = (): React.ReactElement => {
                                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 resize-none"
                                     />
                                 </div>
+
+                                {/* Champs Street et Country */}
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <FiHome className="text-gray-400" size={20} />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        name="street"
+                                        placeholder="Rue (optionnel)"
+                                        value={address.street}
+                                        onChange={onChangeHandler}
+                                        // required // Décommentez si street est obligatoire dans schema.prisma
+                                        className="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
+                                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
+                                    />
+                                </div>
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                        <FiNavigation className="text-gray-400" size={20} />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        name="country"
+                                        placeholder="Pays"
+                                        value={address.country}
+                                        onChange={onChangeHandler}
+                                        required // Country est obligatoire dans schema.prisma
+                                        className="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
+                                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
+                                    />
+                                </div>
+
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {cityStateFields.map(({ name, placeholder, Icon, required, type }) => (
@@ -210,54 +245,55 @@ const AddAddress = (): React.ReactElement => {
                                                 required={required}
                                                 className="pl-12 pr-4 py-3 w-full border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400
                                                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200"
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {message && (
-                                    <div className={`px-4 py-3 rounded-lg text-sm font-medium ${
-                                        message.startsWith('Erreur')
-                                            ? 'bg-red-100 text-red-700'
-                                            : 'bg-green-100 text-green-700'
-                                    }`}>
-                                        {message}
+                                                />
+                                            </div>
+                                        ))}
                                     </div>
-                                )}
 
-                                <button
-                                    type="submit"
-                                    className="w-full flex items-center justify-center space-x-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800
-                                    text-white font-semibold py-3 rounded-lg shadow-md transition duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300"
-                                >
-                                    <FiSave size={20} />
-                                    <span>Enregistrer l&apos;adresse</span>
-                                </button>
-                            </form>
-                        </div>
+                                    {message && (
+                                        <div className={`px-4 py-3 rounded-lg text-sm font-medium ${
+                                            message.startsWith('Erreur')
+                                                ? 'bg-red-100 text-red-700'
+                                                : 'bg-green-100 text-green-700'
+                                        }`}>
+                                            {message}
+                                        </div>
+                                    )}
 
-                        <div className="hidden md:flex md:w-1/2 bg-blue-50 items-center justify-center p-12">
-                            <div className="text-center">
-                                <Image
-                                    src={assets.my_location_image}
-                                    alt="Image de localisation"
-                                    width={400}
-                                    height={400}
-                                    className="mx-auto rounded-xl shadow-lg"
-                                    priority
-                                />
-                                <h3 className="mt-8 text-2xl font-semibold text-gray-800">Votre adresse est importante</h3>
-                                <p className="mt-3 text-gray-600 max-w-sm mx-auto">
-                                    Nous avons besoin de votre adresse pour vous livrer vos commandes et vous offrir la meilleure expérience possible.
-                                </p>
+                                    <button
+                                        type="submit"
+                                        className="w-full flex items-center justify-center space-x-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800
+                                        text-white font-semibold py-3 rounded-lg shadow-md transition duration-300 focus:outline-none focus:ring-4 focus:ring-blue-300"
+                                    >
+                                        <FiSave size={20} />
+                                        <span>Enregistrer l&apos;adresse</span>
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div className="hidden md:flex md:w-1/2 bg-blue-50 items-center justify-center p-12">
+                                <div className="text-center">
+                                    <Image
+                                        src={assets.my_location_image}
+                                        alt="Image de localisation"
+                                        width={400}
+                                        height={400}
+                                        className="mx-auto rounded-xl shadow-lg"
+                                        priority
+                                    />
+                                    <h3 className="mt-8 text-2xl font-semibold text-gray-800">Votre adresse est importante</h3>
+                                    <p className="mt-3 text-gray-600 max-w-sm mx-auto">
+                                        Nous avons besoin de votre adresse pour vous livrer vos commandes et vous offrir la meilleure expérience possible.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-            <Footer />
-        </>
-    );
-};
+                <Footer />
+            </>
+        );
+    };
 
-export default AddAddress;
+    export default AddAddress;
+    

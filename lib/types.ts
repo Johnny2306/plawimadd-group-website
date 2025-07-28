@@ -1,33 +1,45 @@
 // C:\xampp\htdocs\plawimadd_group\lib\types.ts
 
-// IMPORTANT : Assurez-vous que tous les 'id' sont cohérents avec votre backend et next-auth.d.ts
-// J'ai mis 'string' pour 'id' partout pour correspondre au next-auth.d.ts corrigé.
-// Si vos IDs sont NUMERIQUES (auto-incrémentés par exemple), utilisez 'number' ou 'string | number' PARTOUT.
-
-// --- Correction: Importation de useRouter est nécessaire car NextRouter l'utilise ---
 import type { useRouter } from 'next/navigation';
 
-// --- Définition des Enums ALIGNÉES AVEC schema.prisma ---
-// Ces enums doivent correspondre exactement à celles définies dans votre prisma/schema.prisma
-// pour assurer la cohérence des types entre le frontend et le backend via Prisma.
+// --- Définition des Enums ALIGNÉES AVEC schema.prisma et l'API ---
 
+// Ces enums doivent correspondre exactement à celles définies dans votre prisma/schema.prisma
+// et aux valeurs utilisées dans votre logique API et frontend.
 export enum OrderStatus {
     PENDING = 'PENDING',
     PAID_SUCCESS = 'PAID_SUCCESS',
-    PAYMENT_FAILED = 'PAYMENT_FAILED',
+    PAYMENT_FAILED = 'PAYMENT_FAILED', // Cette valeur est dans OrderStatus de Prisma
     PROCESSING = 'PROCESSING',
     SHIPPED = 'SHIPPED',
     DELIVERED = 'DELIVERED',
     CANCELLED = 'CANCELLED',
+    ON_HOLD = 'ON_HOLD',
 }
 
 export enum PaymentStatus {
     PENDING = 'PENDING',
     COMPLETED = 'COMPLETED',
-    FAILED = 'FAILED',
+    FAILED = 'FAILED', // Seule 'FAILED' est dans PaymentStatus de schema.prisma
     REFUNDED = 'REFUNDED',
+    // PAYMENT_FAILED = "PAYMENT_FAILED", // <-- SUPPRIMÉ car n'existe PAS dans PaymentStatus de schema.prisma
 }
 
+// Enum pour les rôles utilisateur, utilisée dans l'interface User.
+// Assurez-vous que les valeurs ('USER', 'ADMIN', 'SELLER') correspondent à celles de votre base de données.
+export enum UserRole {
+    USER = 'USER',
+    ADMIN = 'ADMIN',
+    // SELLER = 'SELLER', // Décommentez si vous utilisez un rôle 'SELLER'
+}
+
+// --- INTERFACES DE BASE ---
+
+/**
+ * @interface Product Représente un produit dans la base de données.
+ * Les prix sont des nombres pour le frontend, convertis de Decimal par le backend.
+ * imgUrl est un tableau de chaînes.
+ */
 export interface Product {
     id: string;
     name: string;
@@ -35,9 +47,9 @@ export interface Product {
     price: number;
     offerPrice: number | null;
     stock: number;
-    imgUrl: string[];
-    createdAt: Date | string;
-    updatedAt: Date | string;
+    imgUrl: string[]; // DOIT être un tableau de chaînes, comme renvoyé par parsePrismaImgUrl
+    createdAt: Date | string; // Peut être une Date ou un string ISO
+    updatedAt: Date | string; // Peut être une Date ou un string ISO
     category: {
         id: string;
         name: string;
@@ -47,44 +59,64 @@ export interface Product {
     color?: string | null;
 }
 
-// Correction: Nouveau type pour la réponse de l'API produits, basé sur votre route.ts
+/**
+ * @type ProductsApiResponse Structure de la réponse de l'API /api/products
+ */
 export type ProductsApiResponse = { success: boolean; data: Product[] };
 
-// NOUVEAU : Type pour la réponse de l'API des commandes (pour fetchUserOrders)
-// Il peut s'agir d'un tableau direct d'Order, ou d'un objet avec une propriété 'data' ou 'orders'
+/**
+ * @type OrdersApiResponse Structure de la réponse de l'API des commandes.
+ * Flexible pour s'adapter à différents formats de réponse (ex: direct array ou wrapped object).
+ */
 export type OrdersApiResponse = { success: boolean; data: Order[] } | { orders: Order[] } | Order[];
 
 
+/**
+ * @interface User Représente les données d'un utilisateur, aligné avec NextAuth et la DB.
+ */
 export interface User {
     id: string;
-    name?: string | null;
+    name?: string | null; // Généralement fullName ou alias
     email?: string | null;
-    image?: string | null;
+    image?: string | null; // URL de l'image de profil
     firstName?: string;
     lastName?: string;
-    role?: 'ADMIN' | 'USER';
-    token?: string;
-    phoneNumber?: string | null; // Rendre phoneNumber optionnel et nullable
+    role?: UserRole; // Utilise l'enum UserRole
+    token?: string; // Token d'authentification si géré manuellement ou via session
+    phoneNumber?: string | null; // Peut être optionnel et nullable
 }
 
-// NOUVEAU : Type pour les articles de commande envoyés au backend (payload de création)
+/**
+ * @interface OrderItemForCreatePayload Représente la structure d'un article de commande
+ * lors de la création d'une commande (payload envoyé au backend).
+ */
 export interface OrderItemForCreatePayload {
     productId: string;
     quantity: number;
     price: number; // Le prix unitaire au moment de l'ajout au panier/checkout
 }
 
-// NOUVEAU : Type pour les articles de commande reçus du backend (pour affichage)
+/**
+ * @interface OrderItemForDisplay Représente un article de commande tel qu'il est reçu
+ * du backend pour l'affichage (inclut les détails complets du produit).
+ * ALIGNÉ AVEC LA SORTIE DE /api/admin/orders.
+ */
 export interface OrderItemForDisplay {
     productId: string;
     quantity: number;
-    priceAtOrder: number; // Le prix unitaire au moment où la commande a été passée (nombre)
-    product: { // Détails du produit inclus depuis la relation Prisma
+    priceAtOrder: number; // Le prix unitaire au moment où la commande a été passée
+    product: { // Détails du produit inclus depuis la relation Prisma dans l'API admin
+        id: string; // Ajouté: L'ID du produit
         name: string;
-        imgUrl: string | null;
+        imgUrl: string[]; // CORRIGÉ: DOIT être un tableau de chaînes
+        price: number; // Ajouté: Prix normal du produit
+        offerPrice: number | null; // Ajouté: Prix promotionnel du produit
     };
 }
 
+/**
+ * @interface Address Représente une adresse de livraison/facturation.
+ */
 export interface Address {
     id?: number; // L'ID d'adresse est un INT dans schema.prisma
     userId: string;
@@ -95,51 +127,65 @@ export interface Address {
     city: string;
     state: string;
     isDefault: boolean;
-    street?: string;
-    country?: string;
+    street?: string; // Optionnel selon votre schema
+    country: string; // Obligatoire selon votre schema
 }
 
-// Mise à jour : Utilise OrderItemForCreatePayload pour les items
+/**
+ * @interface CreateOrderPayload Représente le payload envoyé pour créer une nouvelle commande.
+ * MISE À JOUR : Ajout des champs Kkiapay pour la création de commande après paiement.
+ */
 export interface CreateOrderPayload {
     id: string; // L'ID de transaction Kkiapay généré par le frontend, qui sera aussi l'ID de la commande
-    items: OrderItemForCreatePayload[]; // Utilise le nouveau type spécifique ici
+    items: OrderItemForCreatePayload[]; // Utilise le type spécifique pour la création
     totalAmount: number;
     shippingAddress: Address; // Utilisation de Address pour la clarté
     paymentMethod: string;
-    userEmail: string;
+    userEmail: string; // Assurez-vous que ce champ est 'string' et non 'string | null'
     userPhoneNumber: string | null; // Rendu nullable
     currency: string;
+    // NOUVELLES PROPRIÉTÉS POUR LES DÉTAILS DE TRANSACTION KKIAPAY
+    kkiapayTransactionId?: string;
+    kkiapayPaymentMethod?: string;
+    kkiapayAmount?: number;
+    kkiapayStatus?: string;
 }
 
-// Mise à jour : Utilise OrderItemForDisplay pour les items
+/**
+ * @interface Order Représente une commande complète, ALIGNÉE AVEC LA SORTIE DE /api/admin/orders.
+ */
 export interface Order {
     id: string; // L'ID de la commande est le kkiapayTransactionId dans votre DB
     userId: string;
-    totalAmount: number; // Maintenant un number, converti dans l'API
-    status: OrderStatus;
-    paymentStatus: PaymentStatus;
+    userName: string; // AJOUTÉ: Renommé de user.firstName + user.lastName
+    userEmail: string;
+    userPhoneNumber: string | null; // Rendu nullable
+    totalAmount: number; // Converti en nombre par l'API
+    status: OrderStatus; // Utilise l'enum OrderStatus
+    paymentStatus: PaymentStatus; // Utilise l'enum PaymentStatus (du modèle Payment ou de Order)
+    orderDate: string; // String ISO pour la date de commande
     shippingAddressLine1: string;
     shippingAddressLine2: string | null;
     shippingCity: string;
     shippingState: string;
     shippingZipCode: string | null;
     shippingCountry: string;
-    userEmail: string;
-    userPhoneNumber: string | null; // Rendu nullable
     currency: string;
-    orderDate: Date | string;
-    createdAt: Date | string;
-    updatedAt: Date | string;
-    shippingAddressId: number | null; // L'ID d'adresse est un INT dans schema.prisma
-    orderItems: OrderItemForDisplay[]; // Utilise le nouveau type spécifique ici
-    shippingAddress?: Address | null;
-    // NOUVEAUX CHAMPS AJOUTÉS POUR LA RÉCUPÉRATION DES DÉTAILS DE PAIEMENT
+    orderItems: OrderItemForDisplay[]; // Utilise le type corrigé pour l'affichage
     paymentMethod: string | null; // Méthode de paiement (ex: "Kkiapay")
     transactionId: string | null; // L'ID de transaction Kkiapay réel
+    paymentDate: string | null; // AJOUTÉ: Date du paiement (string ISO ou null)
+    createdAt: Date | string; // Dates d'horodatage de Prisma
+    updatedAt: Date | string; // Dates d'horodatage de Prisma
+    shippingAddressId?: number | null; // L'ID d'adresse est un INT dans schema.prisma, peut être optionnel
+    shippingAddress?: Address | null; // La relation complète si incluse
 }
 
 export type NextRouter = ReturnType<typeof useRouter>;
 
+/**
+ * @interface AppContextType Contexte global de l'application.
+ */
 export interface AppContextType {
     products: Product[];
     loadingProducts: boolean;

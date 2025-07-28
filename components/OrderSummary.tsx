@@ -9,9 +9,6 @@ import { Loader2 } from 'lucide-react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid'; // Pour générer l'ID de transaction Kkiapay
 
-// MISE À JOUR : Suppression des imports inutilisés (Order, OrderStatus, PaymentStatus)
-// Ces types sont indirectement utilisés via CreateOrderPayload et Address,
-// donc les importer directement ici n'est pas nécessaire et cause des avertissements ESLint.
 import { Address, Product, CreateOrderPayload, OrderItemForCreatePayload } from '@/lib/types';
 
 // Définitions de types pour la réponse Kkiapay
@@ -43,7 +40,7 @@ declare global {
             email?: string;
             phone?: string;
             position?: string;
-            sandbox?: boolean;
+            sandbox?: boolean; // Maintenu pour la compatibilité de type
             data?: string;
         }) => void;
         addSuccessListener: (callback: (response: KkiapaySuccessResponse) => void) => void;
@@ -76,7 +73,6 @@ const OrderSummary = () => {
         loadCartData, // Maintenu pour le linter, mais plus appelé directement ici
     } = useAppContext();
 
-    // CORRECTION ICI : Initialiser avec null ou une valeur par défaut, pas avec la variable elle-même
     const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
     const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -174,7 +170,7 @@ const OrderSummary = () => {
                                     console.warn("[Address Effect Debug] Failed to set new address as default:", response.data.message);
                                 }
                             }).catch(error => {
-                                console.error("[Address Effect Debug] Error setting new address as default:", error);
+                                console.error("Erreur setting default address:", error);
                                 toast.error("Erreur réseau lors de la mise à jour de l'adresse par défaut.");
                             });
                         }
@@ -364,20 +360,19 @@ const OrderSummary = () => {
             console.log(`[Create Order] Generated new transaction ID for order: ${newTransactionId}`);
 
             // Étape 2: Construire le payload de la commande pour notre API /api/order/create
-            // Utilisation de OrderItemForCreatePayload pour la construction
             const orderItemsForPayload: OrderItemForCreatePayload[] = Object.entries(cartItems).map(([productId, quantity]) => {
                 const numericQuantity = quantity as number;
                 const product = products.find((p: Product) => String(p.id) === String(productId));
                 if (!product) {
                     console.warn(`[Create Order] Produit avec ID ${productId} non trouvé dans la liste des produits.`);
-                    return null; // Retourne null pour le filtrage
+                    return null;
                 }
                 return {
                     productId: productId,
                     quantity: numericQuantity,
-                    price: product.offerPrice ?? product.price, // Utilise offerPrice si disponible, sinon price
+                    price: product.offerPrice ?? product.price,
                 };
-            }).filter((item): item is OrderItemForCreatePayload => item !== null); // Filtrage correct
+            }).filter((item): item is OrderItemForCreatePayload => item !== null);
 
             if (orderItemsForPayload.length === 0) {
                 console.log("[Create Order] ERREUR: Le panier ne contient pas d'articles valides pour la commande après filtrage.");
@@ -387,13 +382,13 @@ const OrderSummary = () => {
             }
 
             const createOrderPayload: CreateOrderPayload = {
-                id: newTransactionId, // L'ID de commande sera l'ID de transaction Kkiapay
-                items: orderItemsForPayload, // Le type est maintenant correct
+                id: newTransactionId,
+                items: orderItemsForPayload,
                 totalAmount: totalAmountToPay,
                 shippingAddress: selectedAddress,
-                paymentMethod: "Kkiapay", // Méthode de paiement initiale
+                paymentMethod: "Kkiapay",
                 userEmail: currentUser.email,
-                userPhoneNumber: selectedAddress.phoneNumber || currentUser.phoneNumber || null, // CORRECTION: Utilise || null
+                userPhoneNumber: selectedAddress.phoneNumber || currentUser.phoneNumber || null,
                 currency: currency,
             };
 
@@ -456,7 +451,7 @@ const OrderSummary = () => {
                         email: currentUser?.email ?? '',
                         phone: selectedAddress?.phoneNumber ?? '',
                         position: "center",
-                        sandbox: process.env.NODE_ENV === 'development',
+                        sandbox: false, // <-- MODIFICATION CLÉ : Toujours en mode Live
                         // Ne pas passer le payload complet à Kkiapay.data
                         // data: JSON.stringify(preparedOrderPayload) // REMOVED
                     });

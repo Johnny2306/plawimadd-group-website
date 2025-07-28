@@ -272,7 +272,7 @@ export async function PUT(req: NextRequest, context: Context): Promise<NextRespo
 
 /**
  * DELETE /api/cart/[userId]
- * Supprime un article spécifique du panier.
+ * Supprime un article spécifique du panier OU vide tout le panier si aucun productId n'est fourni.
  * Nécessite une authentification et une autorisation.
  */
 export async function DELETE(req: NextRequest, context: Context): Promise<NextResponse> {
@@ -283,51 +283,46 @@ export async function DELETE(req: NextRequest, context: Context): Promise<NextRe
     const userId = authResult.userId!;
 
     try {
-        const { productId } = await req.json(); // Récupère le productId depuis le corps de la requête
-
-        if (!productId) {
-            return NextResponse.json({ success: false, message: 'ID du produit est requis pour la suppression.' }, { status: 400 });
+        let productId: string | undefined;
+        // Tente de lire le corps de la requête. Si aucun corps n'est envoyé, req.json() peut échouer.
+        // Nous allons capturer l'erreur et considérer productId comme undefined dans ce cas.
+        try {
+            const body = await req.json();
+            productId = body.productId;
+        } catch (e) {
+            console.log("[DELETE Cart] Aucun productId trouvé dans le corps de la requête, supposons une suppression de tous les articles du panier.");
+            // productId reste undefined si le corps est vide ou invalide JSON
         }
 
-        // Tente de supprimer l'article du panier
-        const deleteResult = await prisma.cartItem.deleteMany({
-            where: {
-                userId: userId,
-                productId: productId,
-            },
-        });
+        let deleteResult;
+        if (productId) {
+            // Cas 1: Supprimer un article spécifique
+            deleteResult = await prisma.cartItem.deleteMany({
+                where: {
+                    userId: userId,
+                    productId: productId,
+                },
+            });
+            if (deleteResult.count === 0) {
+                return NextResponse.json({ success: false, message: 'Article non trouvé dans le panier ou déjà supprimé.' }, { status: 404 });
+            }
+            console.log(`[DELETE Cart] Article ${productId} supprimé du panier pour l'utilisateur ${userId}.`);
+            return NextResponse.json({ success: true, message: 'Article supprimé du panier.' }, { status: 200 });
 
-        if (deleteResult.count === 0) {
-            return NextResponse.json({ success: false, message: 'Article non trouvé dans le panier ou déjà supprimé.' }, { status: 404 });
+        } else {
+            // Cas 2: Vider tous les articles du panier pour l'utilisateur
+            deleteResult = await prisma.cartItem.deleteMany({
+                where: {
+                    userId: userId,
+                },
+            });
+            console.log(`[DELETE Cart] ${deleteResult.count} articles supprimés du panier de l'utilisateur ${userId} (panier vidé).`);
+            return NextResponse.json({ success: true, message: 'Panier vidé avec succès.' }, { status: 200 });
         }
 
-        // Récupérer tous les articles du panier mis à jour pour le renvoyer au client
-        const updatedCartItems: PrismaCartItemWithProduct[] = await prisma.cartItem.findMany({
-            where: { userId: userId },
-            select: {
-                productId: true,
-                quantity: true,
-                product: {
-                    select: {
-                        name: true,
-                        imgUrl: true, // Ceci est la chaîne JSON stockée dans la DB
-                        price: true,
-                    }
-                }
-            },
-        });
-        const formattedUpdatedCartItems: ClientCartItem[] = updatedCartItems.map((item: PrismaCartItemWithProduct) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            name: item.product?.name || 'Unknown Product',
-            imgUrl: parsePrismaImgUrl(item.product?.imgUrl || null), // Parse l'URL de l'image
-            price: item.product?.price ? parseFloat(item.product.price.toString()) : 0,
-        }));
-
-        return NextResponse.json({ success: true, message: 'Article supprimé du panier.', cartItems: formattedUpdatedCartItems }, { status: 200 });
     } catch (_error: unknown) {
-        console.error("Erreur lors de la suppression de l'article du panier:", _error);
+        console.error("Erreur lors de la suppression du panier:", _error);
         const errorMessage = _error instanceof Error ? _error.message : String(_error);
-        return NextResponse.json({ success: false, message: "Erreur serveur lors de la suppression de l'article du panier.", error: errorMessage }, { status: 500 });
+        return NextResponse.json({ success: false, message: "Erreur serveur lors de la suppression du panier.", error: errorMessage }, { status: 500 });
     }
 }

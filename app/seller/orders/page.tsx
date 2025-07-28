@@ -1,118 +1,119 @@
+// app/seller/orders/page.tsx
 'use client';
-import React, { useEffect, useState, useCallback, ChangeEvent } from 'react';
-import Image from 'next/image';
-import { useAppContext } from '@/context/AppContext'; // Assurez-vous que le contexte est bien typé
-import Footer from '@/components/seller/Footer';
-import Loading from '@/components/Loading';
-import axios from 'axios';
-import { Package, Trash2 } from 'lucide-react'; // Import Trash2 icon
-import { useSession } from 'next-auth/react';
-import { toast } from 'react-toastify'; // Import toast for notifications
-import router from 'next/router';
 
-// --- Interfaces de données pour les commandes ---
+import React, { useEffect, useState, useCallback, ChangeEvent } from "react";
+import Image from "next/image";
+import { useAppContext } from "@/context/AppContext";
+import Footer from "@/components/seller/Footer";
+import Loading from "@/components/Loading";
+import axios from "axios";
+import { Package, Trash2 } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { toast } from "react-toastify";
+import { useRouter } from "next/navigation";
 
-/**
- * @interface OrderItem Représente un article individuel dans une commande.
- */
-interface OrderItem {
-    name: string;
-    quantity: number;
-    imgUrl?: string; // URL de l'image, optionnel
-}
+import { Order, OrderStatus, PaymentStatus, UserRole } from "@/lib/types";
 
-/**
- * @interface Order Représente une commande complète.
- */
-interface Order {
-    id: string;
-    userName: string;
-    userEmail: string;
-    items: OrderItem[];
-    totalAmount: number;
-    shippingAddressLine1: string;
-    shippingAddressLine2?: string; // Optionnel
-    shippingCity: string;
-    shippingState: string;
-    shippingZipCode: string;
-    shippingCountry: string;
-    shippingPhoneNumber?: string; // Optionnel
-    paymentMethod: string;
-    paymentStatusDetail: string;
-    paymentTransactionId?: string; // Optionnel
-    orderDate: string; // Ou Date si vous le convertissez en objet Date
-    orderStatus: 'PENDING' | 'DELIVERED' | 'PROCESSING' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED' | 'FAILED' | 'SHIPPED'; // Ajoutez tous les statuts possibles
-}
-
-// --- Fonctions utilitaires ---
-
-/**
- * Retourne les classes de style Tailwind CSS pour le badge de statut.
- * @param {string} status Le statut de la commande ou du paiement.
- * @returns {string} Les classes CSS.
- */
 const getStatusBadgeStyle = (status: string): string => {
     switch (status) {
-        case 'DELIVERED':
-        case 'COMPLETED':
-            return 'bg-green-100 text-green-800';
-        case 'PENDING':
-        case 'PROCESSING':
-        case 'ON_HOLD':
-        case 'SHIPPED':
-            return 'bg-orange-100 text-orange-800';
-        case 'CANCELLED':
-        case 'FAILED':
-        case 'REFUNDED': // Ajouté pour couvrir le statut de remboursement si applicable
-            return 'bg-red-100 text-red-800';
+        case OrderStatus.DELIVERED:
+        case PaymentStatus.COMPLETED:
+            return 'bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium';
+        case OrderStatus.PENDING:
+        case OrderStatus.PROCESSING:
+        case OrderStatus.ON_HOLD:
+        case OrderStatus.SHIPPED:
+            return 'bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-medium';
+        case OrderStatus.CANCELLED:
+        case OrderStatus.PAYMENT_FAILED: // OrderStatus a PAYMENT_FAILED
+        case PaymentStatus.FAILED: // PaymentStatus a FAILED
+        case PaymentStatus.REFUNDED:
+            return 'bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium';
         default:
-            return 'bg-gray-100 text-gray-800';
+            return 'bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium';
     }
 };
 
-// --- Composant principal Orders ---
+const formatFullDateTime = (dateTimeValue: string | number | Date | null | undefined): string => {
+    if (dateTimeValue === undefined || dateTimeValue === null) return "Date non disponible";
 
-/**
- * Composant de la page de gestion des commandes pour le vendeur.
- * Affiche une liste des commandes, permet de changer leur statut et de les supprimer.
- * @returns {React.ReactElement} Le JSX de la page de gestion des commandes.
- */
+    let date: Date;
+
+    if (dateTimeValue instanceof Date) {
+        date = dateTimeValue;
+    } else if (typeof dateTimeValue === 'string') {
+        const numericTimestamp = parseInt(dateTimeValue, 10);
+        if (!isNaN(numericTimestamp) && numericTimestamp > 0 && String(numericTimestamp) === dateTimeValue) {
+            date = new Date(numericTimestamp < 1000000000000 ? numericTimestamp * 1000 : numericTimestamp);
+        } else {
+            date = new Date(dateTimeValue);
+        }
+    } else if (typeof dateTimeValue === 'number') {
+        date = new Date(dateTimeValue < 1000000000000 && dateTimeValue > 0 ? dateTimeValue * 1000 : dateTimeValue);
+    } else {
+        return "Date invalide";
+    }
+
+    if (isNaN(date.getTime()) || (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1 && date.getHours() === 0 && date.getMinutes() === 0)) {
+        console.warn("Date parsed as invalid or epoch (1970-01-01):", dateTimeValue);
+        return "Date non disponible";
+    }
+
+    return date.toLocaleString('fr-FR', {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+        hour12: false,
+    });
+};
+
 const Orders = (): React.ReactElement => {
-    // Utilisation du contexte global, assurez-vous que AppContext fournit les types corrects
-    const { url, formatPrice } = useAppContext();
-    const { status } = useSession(); // 'status' est le statut de la session NextAuth
+    const { formatPrice } = useAppContext();
+    const { data: session, status } = useSession();
+    const router = useRouter();
 
-    // États du composant
-    const [orders, setOrders] = useState<Order[]>([]); // Type pour le tableau de commandes
+    const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null); // Type pour l'erreur
+    const [error, setError] = useState<string | null>(null);
     const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
-    const [orderToDelete, setOrderToDelete] = useState<string | null>(null); // Stocke l'ID de la commande à supprimer
+    const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
 
-    /**
-     * Récupère toutes les commandes depuis l'API.
-     * Utilise `useCallback` pour éviter des recréations inutiles de la fonction.
-     */
     const fetchAllOrders = useCallback(async () => {
-        if (status !== 'authenticated') {
+        if (status !== 'authenticated' || session?.user?.role !== UserRole.ADMIN) {
             setLoading(false);
-            setError('Vous devez être connecté pour voir les commandes.');
+            setError('Accès refusé. Vous devez être connecté en tant qu\'administrateur.');
             return;
         }
 
-        setLoading(true); // Mettre à jour l'état de chargement au début du fetch
-        setError(null); // Réinitialiser l'erreur
+        setLoading(true);
+        setError(null);
 
         try {
-            const response = await axios.get<Order[]>(`${url}/api/admin/orders`); // Type la réponse d'Axios
-            if (response.status === 200 && Array.isArray(response.data)) {
-                setOrders(response.data);
+            const response = await axios.get<Order[]>('/api/admin/orders', {
+                headers: {
+                    'auth-token': session.user.token,
+                },
+            });
+
+            if (Array.isArray(response.data)) {
+                const fetchedOrders = response.data.map(order => ({
+                    ...order,
+                    orderItems: order.orderItems.map(item => ({
+                        ...item,
+                        product: {
+                            ...item.product,
+                            imgUrl: Array.isArray(item.product.imgUrl)
+                                ? item.product.imgUrl
+                                : (item.product.imgUrl ? [item.product.imgUrl] : []),
+                        }
+                    }))
+                }));
+                setOrders(fetchedOrders);
             } else {
-                setError('Format de données inattendu.');
+                setError('Format de données inattendu de l\'API.');
             }
-        } catch (err: unknown) { // Type l'erreur comme 'unknown'
+        } catch (err: unknown) {
             console.error('Erreur lors du chargement des commandes:', err);
-            if (axios.isAxiosError(err)) { // Vérifie si c'est une erreur Axios
+            if (axios.isAxiosError(err)) {
                 setError(err.response?.data?.message || 'Erreur lors du chargement des commandes.');
             } else {
                 setError('Erreur réseau ou inconnue lors du chargement des commandes.');
@@ -120,26 +121,28 @@ const Orders = (): React.ReactElement => {
         } finally {
             setLoading(false);
         }
-    }, [url, status]); // Dépendances de useCallback
+    }, [status, session?.user?.token, session?.user?.role]);
 
-    /**
-     * Gère le changement de statut d'une commande.
-     * @param {ChangeEvent<HTMLSelectElement>} event L'événement de changement de la sélection.
-     * @param {string} orderId L'ID de la commande à mettre à jour.
-     */
+
     const handleStatusChange = async (event: ChangeEvent<HTMLSelectElement>, orderId: string) => {
-        const newStatus = event.target.value as Order['orderStatus']; // Assurez le type correct pour newStatus
+        const newStatus = event.target.value as OrderStatus;
+        if (!session?.user?.token) {
+            toast.error("Authentification requise pour mettre à jour le statut.");
+            router.push('/login');
+            return;
+        }
         try {
-            const response = await axios.post(`${url}/api/admin/order-status`, {
-                orderId,
-                status: newStatus,
+            const response = await axios.put(`/api/admin/orders/${orderId}`, { status: newStatus }, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'auth-token': session.user.token,
+                },
             });
 
             if (response.data.success) {
-                // Met à jour la commande dans l'état local pour refléter le changement
                 setOrders(prevOrders =>
                     prevOrders.map(order =>
-                        order.id === orderId ? { ...order, orderStatus: newStatus } : order
+                        order.id === orderId ? { ...order, status: newStatus } : order
                     )
                 );
                 toast.success('Statut de la commande mis à jour avec succès !');
@@ -152,27 +155,33 @@ const Orders = (): React.ReactElement => {
         }
     };
 
-    /**
-     * Ouvre la modale de confirmation de suppression.
-     * @param {string} orderId L'ID de la commande à supprimer.
-     */
     const handleDeleteClick = (orderId: string) => {
         setOrderToDelete(orderId);
         setShowConfirmModal(true);
     };
 
-    /**
-     * Confirme et exécute la suppression d'une commande.
-     */
     const confirmDelete = async () => {
-        setShowConfirmModal(false); // Ferme la modale
-        if (!orderToDelete) return; // S'assure qu'un ID est défini
+        setShowConfirmModal(false);
+        if (!orderToDelete) return;
+
+        if (!session?.user?.token) {
+            toast.error("Authentification requise pour supprimer un produit.");
+            router.push('/login');
+            return;
+        }
 
         try {
-            const response = await axios.delete(`${url}/api/admin/orders/${orderToDelete}`); // Utilisation de la méthode DELETE
+            const response = await axios.delete(`/api/admin/orders/${orderToDelete}`, {
+                headers: {
+                    'auth-token': session.user.token,
+                },
+                data: { id: orderToDelete }
+            });
             if (response.data.success) {
                 setOrders(prevOrders => prevOrders.filter(order => order.id !== orderToDelete));
                 toast.success('Commande supprimée avec succès !');
+                // Optionally, refetch all orders to ensure the list is fully up-to-date
+                // fetchAllOrders();
             } else {
                 toast.error('Échec de la suppression de la commande.');
             }
@@ -180,65 +189,50 @@ const Orders = (): React.ReactElement => {
             console.error('Erreur lors de la suppression de la commande:', error);
             toast.error('Erreur réseau ou du serveur lors de la suppression de la commande.');
         } finally {
-            setOrderToDelete(null); // Réinitialise l'ID de la commande à supprimer
+            setOrderToDelete(null);
         }
     };
 
-    /**
-     * Annule l'opération de suppression et ferme la modale.
-     */
     const cancelDelete = () => {
         setShowConfirmModal(false);
         setOrderToDelete(null);
     };
 
-    // Effet pour charger les commandes lors de l'authentification
     useEffect(() => {
-        if (status === 'authenticated') {
+        if (status === 'authenticated' && session?.user?.role === UserRole.ADMIN) {
             fetchAllOrders();
         } else if (status === 'unauthenticated') {
             setLoading(false);
             setError('Non connecté. Veuillez vous connecter.');
+            router.push('/login');
+        } else if (status === 'authenticated' && session?.user?.role !== UserRole.ADMIN) {
+            setLoading(false);
+            setError('Accès refusé. Vous n\'êtes pas autorisé à voir cette page.');
+            router.push('/');
         }
-    }, [status, fetchAllOrders]); // fetchAllOrders est une dépendance stable grâce à useCallback
-
-    /**
-     * Formate un timestamp en date et heure complètes.
-     * @param {string | number | Date | null | undefined} timestamp Le timestamp à formater.
-     * @returns {string} La date et l'heure formatées ou "N/A".
-     */
-    const formatFullDateTime = (timestamp: string | number | Date | null | undefined): string => {
-        if (!timestamp) return 'N/A';
-        const date = new Date(timestamp);
-        // Vérifie si la date est valide
-        if (isNaN(date.getTime())) return 'Date invalide';
-        return date.toLocaleString('fr-FR', {
-            year: 'numeric', month: 'short', day: 'numeric',
-            hour: '2-digit', minute: '2-digit',
-            hour12: false,
-        });
-    };
+    }, [status, fetchAllOrders, session?.user?.role, router]);
 
     return (
-        <div className="flex flex-col min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-100 font-inter">
+        <div className="flex flex-col min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-100 font-sans">
             <main className="flex-1 p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full">
                 <div className="flex items-center gap-4 mb-8">
-                    <Package className="w-10 h-10 text-blue-600" aria-hidden='true' /> {/* Icône décorative */}
+                    <Package className="w-10 h-10 text-blue-600" aria-hidden='true' />
                     <h1 className="text-4xl font-extrabold text-gray-900">Gestion des Commandes</h1>
                 </div>
 
                 {loading ? (
                     <div className="flex justify-center items-center h-64 bg-white rounded-xl shadow">
                         <Loading />
+                        <p className="ml-3 text-lg text-gray-700">Chargement des commandes...</p>
                     </div>
                 ) : error ? (
                     <div className="text-center bg-red-100 border border-red-300 text-red-800 p-6 rounded-xl shadow-md" role='alert'>
                         <h2 className="text-xl font-bold mb-3">Erreur</h2>
                         <p>{error}</p>
                         <button
-                            onClick={() => router.push('/login')} // Utilisation de router.push pour la navigation Next.js
+                            onClick={() => router.push('/login')}
                             className="mt-4 px-6 py-3 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 transition-transform duration-300 transform hover:scale-105"
-                            aria-label='Se connecter pour accéder aux commandes' // Ajouté pour l'accessibilité
+                            aria-label='Se connecter pour accéder aux commandes'
                         >
                             Se connecter
                         </button>
@@ -267,33 +261,38 @@ const Orders = (): React.ReactElement => {
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {orders.map((order: Order) => ( // Type 'order' comme Order
+                                        {orders.map((order: Order) => (
                                             <tr key={order.id} className="hover:bg-blue-50 transition duration-150">
                                                 <td className="py-4 px-6">
                                                     <p className="font-semibold text-gray-800">{order.userName || 'N/A'}</p>
                                                     <p className="text-gray-600">{order.userEmail || 'N/A'}</p>
                                                 </td>
                                                 <td className="py-4 px-6">
-                                                    {order.items?.length > 0 ? (
-                                                        <ul className="space-y-1">
-                                                            {order.items.map((item: OrderItem, index: number) => ( // Type 'item' comme OrderItem
-                                                                <li key={index} className="flex items-center gap-2">
-                                                                    {item.imgUrl && (
+                                                    <div className="flex flex-col space-y-2">
+                                                        {order.orderItems?.length > 0 ? (
+                                                            order.orderItems.map((item, index) => (
+                                                                <div key={index} className="flex items-center gap-2">
+                                                                    {Array.isArray(item.product.imgUrl) && item.product.imgUrl.length > 0 && item.product.imgUrl[0] ? (
                                                                         <Image
-                                                                            src={item.imgUrl}
-                                                                            alt={item.name || 'Image produit'}
+                                                                            src={item.product.imgUrl[0]}
+                                                                            alt={item.product.name || 'Image produit'}
                                                                             width={30}
                                                                             height={30}
                                                                             className="rounded object-cover"
+                                                                            onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => { e.currentTarget.src = '/placeholder.jpg'; }}
                                                                         />
+                                                                    ) : (
+                                                                        <div className="w-8 h-8 bg-gray-200 rounded-md flex items-center justify-center text-gray-500 text-xs">
+                                                                            <Package size={16} />
+                                                                        </div>
                                                                     )}
-                                                                    <span className="text-gray-700">{item.name} x {item.quantity}</span>
-                                                                </li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <span className="text-gray-500">Aucun</span>
-                                                    )}
+                                                                    <span className="text-gray-700">{item.product.name} x {item.quantity}</span>
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <span className="text-gray-500">Aucun</span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="py-4 px-6 font-bold text-gray-900">{formatPrice(order.totalAmount)}</td>
                                                 <td className="py-4 px-6 text-gray-700">
@@ -301,91 +300,92 @@ const Orders = (): React.ReactElement => {
                                                     {order.shippingAddressLine2 && <p>{order.shippingAddressLine2}</p>}
                                                     <p>{`${order.shippingCity || ''}, ${order.shippingState || ''}`}</p>
                                                     <p>{`${order.shippingZipCode || ''}, ${order.shippingCountry || ''}`}</p>
-                                                    {order.shippingPhoneNumber && <p className="font-medium">Tél: {order.shippingPhoneNumber}</p>}
-                                                    {!order.shippingPhoneNumber && <p className="font-medium text-gray-500">Tél: N/A</p>}
+                                                    {order.userPhoneNumber && <p className="font-medium">Tél: {order.userPhoneNumber}</p>}
+                                                    {!order.userPhoneNumber && <p className="font-medium text-gray-500">Tél: N/A</p>}
                                                 </td>
                                                 <td className="py-4 px-6 text-gray-700">
                                                     <p className="font-medium">Méthode : {order.paymentMethod}</p>
                                                     <p>Statut :
-                                                        <span className={`ml-1 px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadgeStyle(order.paymentStatusDetail)}`}>
-                                                            {order.paymentStatusDetail?.replace(/_/g, ' ') || 'N/A'}
+                                                        <span className={`ml-1 px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadgeStyle(order.paymentStatus)}`}>
+                                                            {order.paymentStatus?.replace(/_/g, ' ') || 'N/A'}
                                                         </span>
                                                     </p>
-                                                    <p className="font-mono text-xs">ID: {order.paymentTransactionId || 'N/A'}</p>
+                                                    <p className="font-mono text-xs">ID: {order.transactionId || 'N/A'}</p>
                                                 </td>
                                                 <td className="py-4 px-6 text-gray-700 whitespace-nowrap">
                                                     {formatFullDateTime(order.orderDate)}
-                                                </td>
-                                                {/* Status Dropdown */}
-                                                <td className="py-4 px-6">
-                                                    <select
-                                                        onChange={(e) => handleStatusChange(e, order.id)}
-                                                        value={order.orderStatus}
-                                                        className={`p-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 ${getStatusBadgeStyle(order.orderStatus)}`}
-                                                        aria-label={`Changer le statut de la commande ${order.id}`} // Ajouté pour l'accessibilité
-                                                    >
-                                                        <option value="PENDING">En attente</option>
-                                                        <option value="PROCESSING">En traitement</option>
-                                                        <option value="SHIPPED">Expédiée</option>
-                                                        <option value="DELIVERED">Livrée</option>
-                                                        <option value="CANCELLED">Annulée</option>
-                                                    </select>
-                                                </td>
-                                                {/* Actions column with Delete button */}
-                                                <td className="py-4 px-6 text-left">
-                                                    <button
-                                                        onClick={() => handleDeleteClick(order.id)}
-                                                        className="text-red-600 hover:text-red-800 transition-colors duration-200"
-                                                        title="Supprimer la commande"
-                                                        aria-label={`Supprimer la commande ${order.id}`} // Ajouté pour l'accessibilité
-                                                    >
-                                                        <Trash2 className="w-5 h-5" aria-hidden='true' /> {/* Icône décorative */}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                )}
+                                                    </td>
+                                                    <td className="py-4 px-6">
+                                                        <select
+                                                            onChange={(e) => handleStatusChange(e, order.id)}
+                                                            value={order.status}
+                                                            className={`p-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 ${getStatusBadgeStyle(order.status)}`}
+                                                            aria-label={`Changer le statut de la commande ${order.id}`}
+                                                        >
+                                                            {/* MODIFICATION ICI : Limiter les options */}
+                                                            <option value={OrderStatus.PENDING}>En attente</option>
+                                                            <option value={OrderStatus.DELIVERED}>Livré</option>
+                                                            {/* Si vous voulez d'autres options pour l'admin, ajoutez-les ici */}
+                                                            {/* Par exemple, pour permettre de passer en 'PROCESSING' ou 'SHIPPED' */}
+                                                            {/* <option value={OrderStatus.PROCESSING}>En cours de traitement</option> */}
+                                                            {/* <option value={OrderStatus.SHIPPED}>Expédiée</option> */}
+                                                        </select>
+                                                    </td>
+                                                    <td className="py-4 px-6 text-left">
+                                                        <button
+                                                            onClick={() => handleDeleteClick(order.id)}
+                                                            className="text-red-600 hover:text-red-800 transition-colors duration-200"
+                                                            title="Supprimer la commande"
+                                                            aria-label={`Supprimer la commande ${order.id}`}
+                                                        >
+                                                            <Trash2 className="w-5 h-5" aria-hidden='true' />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
-                {/* Confirmation Modal for Deletion */}
-                {showConfirmModal && (
-                    <div
-                        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-                        role='dialog' // Indique que c'est une boîte de dialogue
-                        aria-modal='true' // Indique qu'il s'agit d'une modale
-                        aria-labelledby='confirm-delete-title' // Référence le titre de la modale
-                        aria-describedby='confirm-delete-description' // Référence la description
-                    >
-                        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
-                            <h3 id='confirm-delete-title' className="text-2xl font-bold text-gray-900 mb-4">Confirmer la suppression</h3>
-                            <p id='confirm-delete-description' className="text-gray-700 mb-6">Êtes-vous sûr de vouloir supprimer cette commande ? Cette action est irréversible.</p>
-                            <div className="flex justify-center gap-4">
-                                <button
-                                    onClick={cancelDelete}
-                                    className="px-6 py-3 bg-gray-300 text-gray-800 rounded-lg shadow hover:bg-gray-400 transition-transform duration-300 transform hover:scale-105"
-                                    aria-label='Annuler la suppression de la commande' // Ajouté pour l'accessibilité
-                                >
-                                    Annuler
-                                </button>
-                                <button
-                                    onClick={confirmDelete}
-                                    className="px-6 py-3 bg-red-600 text-white rounded-lg shadow hover:bg-red-700 transition-transform duration-300 transform hover:scale-105"
-                                    aria-label='Confirmer la suppression de la commande' // Ajouté pour l'accessibilité
-                                >
-                                    Supprimer
-                                </button>
+                    {/* Confirmation Modal for Deletion */}
+                    {showConfirmModal && (
+                        <div
+                            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+                            role='dialog'
+                            aria-modal='true'
+                            aria-labelledby='confirm-delete-title'
+                            aria-describedby='confirm-delete-description'
+                        >
+                            <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
+                                <h3 id='confirm-delete-title' className="text-2xl font-bold text-gray-900 mb-4">Confirmer la suppression</h3>
+                                <p id='confirm-delete-description' className="text-gray-700 mb-6">Êtes-vous sûr de vouloir supprimer cette commande ? Cette action est irréversible.</p>
+                                <div className="flex justify-center gap-4">
+                                    <button
+                                        onClick={cancelDelete}
+                                        className="px-6 py-3 bg-gray-300 text-gray-800 rounded-lg shadow hover:bg-gray-400 transition-transform duration-300 transform hover:scale-105"
+                                        aria-label='Annuler la suppression de la commande'
+                                    >
+                                        Annuler
+                                    </button>
+                                    <button
+                                        onClick={confirmDelete}
+                                        className="px-6 py-3 bg-red-600 text-white rounded-lg shadow hover:bg-red-700 transition-transform duration-300 transform hover:scale-105"
+                                        aria-label='Confirmer la suppression de la commande'
+                                    >
+                                        Supprimer
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
-            </main>
-            <Footer />
-        </div>
-    );
-};
+                    )}
+                </main>
+                <Footer />
+            </div>
+        );
+    };
 
-export default Orders;
+    export default Orders;
+    

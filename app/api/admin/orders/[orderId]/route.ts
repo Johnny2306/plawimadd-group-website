@@ -1,78 +1,98 @@
-// app/api/admin/orders/[orderId]/route.ts
-// Cette route gère la suppression d'une commande spécifique par les administrateurs.
-
+// app/api/admin/order-status/[orderId]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import prisma from '@/lib/prisma'; // Importez votre client Prisma
+import prisma from '@/lib/prisma';
+import { OrderStatus } from '@prisma/client';
 
 interface Context {
-    params: {
-        orderId: string; // L'ID de commande est une chaîne (UUID)
-    };
+  params: {
+    orderId: string;
+  };
 }
 
-export async function DELETE(request: NextRequest, context: Context): Promise<NextResponse> {
-    // Authentification et Autorisation (spécifique aux admins pour cette route)
-    const session = await getServerSession(authOptions);
+// ✅ GET une commande par ID
+export async function GET(request: NextRequest, context: Context) {
+  const session = await getServerSession(authOptions);
 
-    if (!session || !session.user) {
-        console.warn("Accès non authentifié à l'API DELETE /api/admin/orders/[orderId].");
-        return NextResponse.json({ message: 'Non authentifié.' }, { status: 401 });
+  if (!session || session.user.role !== 'ADMIN') {
+    return NextResponse.json({ message: 'Non autorisé' }, { status: 401 });
+  }
+
+  const { orderId } = context.params;
+
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      return NextResponse.json({ message: 'Commande non trouvée' }, { status: 404 });
     }
 
-    if (session.user.role?.toUpperCase() !== 'ADMIN') {
-        console.warn(`Accès non autorisé à DELETE /api/admin/orders/[orderId] par ${session.user.id} (Rôle: ${session.user.role || 'Aucun'})`);
-        return NextResponse.json({ message: 'Accès interdit. Seuls les administrateurs peuvent supprimer des commandes.' }, { status: 403 });
-    }
+    return NextResponse.json(order);
+  } catch (error) {
+    console.error('Erreur GET commande :', error);
+    return NextResponse.json({ message: 'Erreur serveur' }, { status: 500 });
+  }
+}
 
-    const orderId = context.params.orderId;
+// ✅ PUT pour mettre à jour le statut
+export async function PUT(request: NextRequest, context: Context) {
+  const session = await getServerSession(authOptions);
 
-    if (!orderId || typeof orderId !== 'string') {
-        return NextResponse.json({ success: false, message: 'ID de commande valide (chaîne) manquant.' }, { status: 400 });
-    }
+  if (!session || session.user.role !== 'ADMIN') {
+    return NextResponse.json({ message: 'Non autorisé' }, { status: 401 });
+  }
 
-    try {
-        // Utilisation de la transaction Prisma pour garantir l'atomicité des opérations
-        const [deleteOrderItemsResult, deletePaymentsResult, deleteOrderResult] = await prisma.$transaction([
-            // 1. Supprimer les OrderItems associés à la commande
-            prisma.orderItem.deleteMany({
-                where: { orderId: orderId },
-            }),
-            // 2. Supprimer les Payments associés à la commande
-            prisma.payment.deleteMany({
-                where: { orderId: orderId },
-            }),
-            // 3. Supprimer la commande elle-même
-            prisma.order.deleteMany({ // Utiliser deleteMany car delete unique nécessite un champ unique comme ID
-                where: { id: orderId },
-            }),
-        ]);
+  const { orderId } = context.params;
 
-        // Vérifier si la commande principale a été supprimée
-        if (deleteOrderResult.count === 0) {
-            // Si la commande n'a pas été trouvée, la transaction sera annulée par Prisma si les autres opérations ont échoué.
-            // Mais si elle n'a jamais existé, count sera 0.
-            return NextResponse.json({ success: false, message: 'Commande non trouvée ou déjà supprimée.' }, { status: 404 });
-        }
+  let body: { status?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ message: 'Requête invalide' }, { status: 400 });
+  }
 
-        console.log(`Commande ${orderId} supprimée. Articles supprimés: ${deleteOrderItemsResult.count}, Paiements supprimés: ${deletePaymentsResult.count}`);
+  const { status } = body;
 
-        return NextResponse.json({
-            success: true,
-            message: 'Commande et ses éléments associés supprimés avec succès.'
-        }, { status: 200 });
+  if (!status || !(status in OrderStatus)) {
+    return NextResponse.json({ message: 'Statut invalide.' }, { status: 400 });
+  }
 
-    } catch (_error: unknown) { // Correction ESLint: renommé 'error' en '_error'
-        // Prisma gère automatiquement le rollback en cas d'erreur dans une transaction.
-        const message = _error instanceof Error ? _error.message : String(_error);
-        console.error("Erreur CRITIQUE dans DELETE /api/admin/orders/[orderId]:", _error); // Afficher l'erreur complète pour le débogage
-        return NextResponse.json({
-            success: false,
-            message: 'Erreur serveur lors de la suppression de la commande.',
-            error: message
-        }, { status: 500 });
+  try {
+    const updated = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: { set: status as OrderStatus },
+      },
+    });
 
-    }
-    // Pas de bloc finally pour connection.release() car nous utilisons Prisma, qui gère ses propres connexions.
+    return NextResponse.json({ success: true, order: updated });
+  } catch (error) {
+    console.error('Erreur PUT commande :', error);
+    return NextResponse.json({ message: 'Erreur serveur' }, { status: 500 });
+  }
+}
+
+// ✅ DELETE une commande (optionnel selon ton business)
+export async function DELETE(request: NextRequest, context: Context) {
+  const session = await getServerSession(authOptions);
+
+  if (!session || session.user.role !== 'ADMIN') {
+    return NextResponse.json({ message: 'Non autorisé' }, { status: 401 });
+  }
+
+  const { orderId } = context.params;
+
+  try {
+    await prisma.order.delete({
+      where: { id: orderId },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Erreur DELETE commande :', error);
+    return NextResponse.json({ message: 'Erreur serveur' }, { status: 500 });
+  }
 }

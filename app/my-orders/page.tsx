@@ -53,33 +53,29 @@ const MyOrdersPage = () => {
 
         let date: Date;
 
-        if (dateTimeValue instanceof Date) {
-            date = dateTimeValue;
-        } else if (typeof dateTimeValue === 'string') {
-            const numericTimestamp = parseInt(dateTimeValue, 10);
-            if (!isNaN(numericTimestamp) && numericTimestamp > 0) {
-                date = new Date(numericTimestamp < 1000000000000 ? numericTimestamp * 1000 : numericTimestamp);
-            } else {
-                date = new Date(dateTimeValue);
-            }
-        } else if (typeof dateTimeValue === 'number') {
-            date = new Date(dateTimeValue < 1000000000000 && dateTimeValue > 0 ? dateTimeValue * 1000 : dateTimeValue);
-        } else {
+        // Tente de créer une date directement. Cela fonctionne pour les chaînes ISO 8601 et les objets Date.
+        try {
+            date = new Date(dateTimeValue);
+        } catch (e) {
+            console.error("Erreur lors de la tentative de création de date:", dateTimeValue, e);
             return "Date invalide";
         }
 
-        if (isNaN(date.getTime()) || (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1)) {
+        // Si la date est invalide (par exemple, si la chaîne n'était pas un format valide)
+        // ou si c'est une date epoch (1970-01-01) qui indique souvent un problème de parsing
+        if (isNaN(date.getTime()) || (date.getFullYear() === 1970 && date.getMonth() === 0 && date.getDate() === 1 && date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0)) {
             console.warn("Date parsed as invalid or epoch (1970-01-01):", dateTimeValue);
             return "Date non disponible";
         }
 
+        // Utilise toLocaleString pour un formatage lisible
         return date.toLocaleString('fr-FR', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
             hour: '2-digit',
             minute: '2-digit',
-            hour12: false
+            hour12: false // Format 24 heures
         });
     };
 
